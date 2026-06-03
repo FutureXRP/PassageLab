@@ -30,10 +30,6 @@ async function callClaude(prompt: string): Promise<unknown> {
   return extractJSON(text)
 }
 
-/**
- * Generate a full study dossier for a given passage.
- * Makes two sequential Claude calls and merges the results.
- */
 export async function generateStudy(passage: string): Promise<StudyData> {
   const [part1, part2] = await Promise.all([
     callClaude(PROMPT_PART_1(passage)),
