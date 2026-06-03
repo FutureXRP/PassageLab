@@ -1,0 +1,1092 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>PassageLab — Biblical Research Platform</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400;1,600&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<style>
+/* ─── RESET & VARIABLES ───────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --ink:       #0D1117;
+  --ink-2:     #1C2333;
+  --parchment: #F5F0E8;
+  --cream:     #FAF7F2;
+  --gold:      #C9973A;
+  --gold-light:#E8B84B;
+  --crimson:   #8B1A1A;
+  --crimson-light: #B22222;
+  --slate:     #8892A4;
+  --border:    rgba(255,255,255,0.08);
+  --border-light: rgba(201,151,58,0.25);
+
+  --serif: 'Playfair Display', Georgia, serif;
+  --sans:  'DM Sans', system-ui, sans-serif;
+  --mono:  'DM Mono', monospace;
+}
+
+html { scroll-behavior: smooth; }
+body {
+  font-family: var(--sans);
+  background: var(--ink);
+  color: var(--parchment);
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+
+/* ─── NAV ──────────────────────────────────────────────────────────── */
+nav {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 40px;
+  height: 64px;
+  background: rgba(13,17,23,0.85);
+  backdrop-filter: blur(16px);
+  border-bottom: 1px solid var(--border);
+}
+.nav-logo {
+  font-family: var(--serif);
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--parchment);
+  text-decoration: none;
+  letter-spacing: -0.3px;
+}
+.nav-logo span { color: var(--gold); }
+.nav-links { display: flex; align-items: center; gap: 32px; }
+.nav-links a {
+  font-size: 14px; font-weight: 400; color: var(--slate);
+  text-decoration: none; transition: color 0.2s;
+}
+.nav-links a:hover { color: var(--parchment); }
+.nav-cta {
+  display: flex; align-items: center; gap: 12px;
+}
+.btn-ghost {
+  font-size: 13px; font-weight: 500; color: var(--parchment);
+  background: none; border: 1px solid var(--border);
+  border-radius: 6px; padding: 8px 18px; cursor: pointer;
+  font-family: var(--sans); text-decoration: none;
+  transition: border-color 0.2s, color 0.2s;
+}
+.btn-ghost:hover { border-color: var(--gold); color: var(--gold); }
+.btn-primary {
+  font-size: 13px; font-weight: 600; color: var(--ink);
+  background: var(--gold); border: none;
+  border-radius: 6px; padding: 9px 20px; cursor: pointer;
+  font-family: var(--sans); text-decoration: none;
+  transition: background 0.2s, transform 0.15s;
+}
+.btn-primary:hover { background: var(--gold-light); transform: translateY(-1px); }
+
+/* ─── HERO ─────────────────────────────────────────────────────────── */
+.hero {
+  min-height: 100vh;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  text-align: center;
+  padding: 120px 24px 80px;
+  position: relative;
+  overflow: hidden;
+}
+
+.hero-bg {
+  position: absolute; inset: 0; z-index: 0;
+  background:
+    radial-gradient(ellipse 80% 60% at 50% 0%, rgba(201,151,58,0.08) 0%, transparent 70%),
+    radial-gradient(ellipse 60% 40% at 80% 80%, rgba(139,26,26,0.06) 0%, transparent 60%),
+    radial-gradient(ellipse 40% 30% at 20% 60%, rgba(201,151,58,0.04) 0%, transparent 50%);
+}
+
+/* Decorative grid lines */
+.hero-bg::before {
+  content: '';
+  position: absolute; inset: 0;
+  background-image:
+    linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px);
+  background-size: 80px 80px;
+}
+
+.hero-eyebrow {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-family: var(--mono); font-size: 11px; font-weight: 500;
+  color: var(--gold); letter-spacing: 2px; text-transform: uppercase;
+  border: 1px solid var(--border-light);
+  border-radius: 100px; padding: 6px 16px;
+  margin-bottom: 32px;
+  position: relative; z-index: 1;
+  animation: fadeUp 0.6s ease both;
+}
+.eyebrow-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--gold); animation: pulse 2s ease-in-out infinite;
+}
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+.hero-headline {
+  font-family: var(--serif);
+  font-size: clamp(42px, 7vw, 88px);
+  font-weight: 700;
+  line-height: 1.08;
+  letter-spacing: -1.5px;
+  color: var(--parchment);
+  max-width: 900px;
+  position: relative; z-index: 1;
+  animation: fadeUp 0.6s 0.1s ease both;
+}
+.hero-headline em {
+  font-style: italic; color: var(--gold);
+}
+.hero-headline .line-crimson { color: var(--crimson-light); }
+
+.hero-sub {
+  font-size: clamp(16px, 2.2vw, 20px);
+  font-weight: 300;
+  color: var(--slate);
+  max-width: 600px;
+  line-height: 1.7;
+  margin-top: 24px;
+  position: relative; z-index: 1;
+  animation: fadeUp 0.6s 0.2s ease both;
+}
+
+.hero-actions {
+  display: flex; align-items: center; gap: 14px;
+  margin-top: 40px;
+  position: relative; z-index: 1;
+  animation: fadeUp 0.6s 0.3s ease both;
+  flex-wrap: wrap; justify-content: center;
+}
+.btn-hero {
+  font-size: 15px; font-weight: 600; color: var(--ink);
+  background: var(--gold); border: none;
+  border-radius: 8px; padding: 14px 28px; cursor: pointer;
+  font-family: var(--sans); text-decoration: none;
+  transition: background 0.2s, transform 0.15s, box-shadow 0.2s;
+  box-shadow: 0 4px 24px rgba(201,151,58,0.3);
+}
+.btn-hero:hover {
+  background: var(--gold-light);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 32px rgba(201,151,58,0.4);
+}
+.btn-hero-ghost {
+  font-size: 15px; font-weight: 500; color: var(--parchment);
+  background: none; border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 8px; padding: 14px 28px; cursor: pointer;
+  font-family: var(--sans); text-decoration: none;
+  transition: border-color 0.2s, background 0.2s;
+}
+.btn-hero-ghost:hover {
+  border-color: rgba(255,255,255,0.35);
+  background: rgba(255,255,255,0.04);
+}
+
+.hero-proof {
+  margin-top: 48px;
+  font-size: 13px; color: var(--slate);
+  position: relative; z-index: 1;
+  animation: fadeUp 0.6s 0.4s ease both;
+}
+.hero-proof strong { color: var(--parchment); }
+
+/* ─── PASSAGE DEMO ─────────────────────────────────────────────────── */
+.demo-wrap {
+  position: relative; z-index: 1;
+  margin-top: 72px;
+  width: 100%; max-width: 780px;
+  animation: fadeUp 0.7s 0.5s ease both;
+}
+
+.demo-chrome {
+  background: var(--ink-2);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow:
+    0 0 0 1px rgba(201,151,58,0.1),
+    0 40px 80px rgba(0,0,0,0.6),
+    0 0 120px rgba(201,151,58,0.06);
+}
+
+.demo-topbar {
+  display: flex; align-items: center; gap: 8px;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(255,255,255,0.02);
+}
+.demo-dot { width: 10px; height: 10px; border-radius: 50%; }
+.demo-dot.r { background: #FF5F57; }
+.demo-dot.y { background: #FEBC2E; }
+.demo-dot.g { background: #28C840; }
+.demo-url {
+  margin-left: 12px;
+  font-family: var(--mono); font-size: 12px; color: var(--slate);
+}
+
+.demo-body { padding: 28px 32px; }
+
+.demo-search {
+  display: flex; gap: 10px; margin-bottom: 24px;
+}
+.demo-input {
+  flex: 1;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 8px;
+  padding: 12px 16px;
+  font-family: var(--serif); font-size: 16px; color: var(--parchment);
+  font-style: italic;
+}
+.demo-btn {
+  background: var(--gold); color: var(--ink);
+  border: none; border-radius: 8px;
+  padding: 12px 20px; font-size: 13px; font-weight: 600;
+  font-family: var(--sans); cursor: pointer;
+  white-space: nowrap;
+}
+
+.demo-tabs {
+  display: flex; gap: 0; border-bottom: 1px solid var(--border); margin-bottom: 20px;
+  overflow-x: auto;
+}
+.demo-tab {
+  font-size: 12px; padding: 8px 14px; color: var(--slate);
+  white-space: nowrap; border-bottom: 2px solid transparent; margin-bottom: -1px;
+}
+.demo-tab.active { color: var(--gold); border-bottom-color: var(--gold); font-weight: 500; }
+
+.demo-content { display: flex; flex-direction: column; gap: 16px; }
+
+.demo-block {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid var(--border);
+  border-radius: 10px; padding: 16px 18px;
+}
+.demo-block-label {
+  font-family: var(--mono); font-size: 10px; font-weight: 500;
+  color: var(--gold); text-transform: uppercase; letter-spacing: 1.5px;
+  margin-bottom: 8px;
+}
+.demo-block-text {
+  font-size: 13px; color: var(--slate); line-height: 1.7;
+}
+.demo-block-text strong { color: var(--parchment); font-weight: 500; }
+
+.demo-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+.demo-highlight {
+  background: linear-gradient(135deg, rgba(201,151,58,0.1), rgba(201,151,58,0.05));
+  border: 1px solid rgba(201,151,58,0.2);
+  border-radius: 10px; padding: 16px 18px;
+}
+.demo-highlight-label {
+  font-family: var(--mono); font-size: 10px; color: var(--gold);
+  text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 8px;
+}
+.demo-highlight-text {
+  font-family: var(--serif); font-size: 15px; color: var(--parchment);
+  font-style: italic; line-height: 1.6;
+}
+
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ─── DIVIDER ──────────────────────────────────────────────────────── */
+.divider {
+  display: flex; align-items: center; gap: 16px;
+  max-width: 200px; margin: 0 auto;
+  padding: 40px 0;
+}
+.divider-line { flex: 1; height: 1px; background: var(--border); }
+.divider-cross {
+  font-family: var(--serif); font-size: 18px; color: var(--border-light);
+}
+
+/* ─── LOGOS / SOCIAL PROOF ─────────────────────────────────────────── */
+.proof-section {
+  padding: 40px 24px 80px;
+  text-align: center;
+}
+.proof-label {
+  font-family: var(--mono); font-size: 11px; color: var(--slate);
+  text-transform: uppercase; letter-spacing: 2px; margin-bottom: 32px;
+}
+.proof-users {
+  display: flex; align-items: center; justify-content: center; gap: 40px;
+  flex-wrap: wrap;
+}
+.proof-user {
+  font-family: var(--serif); font-size: 15px; color: rgba(245,240,232,0.35);
+  font-style: italic; white-space: nowrap;
+}
+
+/* ─── FEATURES ─────────────────────────────────────────────────────── */
+.features {
+  padding: 100px 24px;
+  max-width: 1100px; margin: 0 auto;
+}
+
+.section-eyebrow {
+  font-family: var(--mono); font-size: 11px; font-weight: 500;
+  color: var(--gold); letter-spacing: 2px; text-transform: uppercase;
+  margin-bottom: 16px;
+}
+.section-heading {
+  font-family: var(--serif);
+  font-size: clamp(32px, 4.5vw, 52px);
+  font-weight: 700; line-height: 1.15;
+  letter-spacing: -0.8px; color: var(--parchment);
+  max-width: 640px;
+}
+.section-heading em { font-style: italic; color: var(--gold); }
+.section-sub {
+  font-size: 17px; color: var(--slate); line-height: 1.7;
+  max-width: 540px; margin-top: 16px; font-weight: 300;
+}
+
+.features-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1px;
+  background: var(--border);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  overflow: hidden;
+  margin-top: 64px;
+}
+
+.feature-card {
+  background: var(--ink-2);
+  padding: 36px 32px;
+  transition: background 0.25s;
+  position: relative;
+}
+.feature-card:hover { background: rgba(201,151,58,0.04); }
+
+.feature-icon {
+  width: 40px; height: 40px;
+  border: 1px solid var(--border-light);
+  border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+  margin-bottom: 20px;
+  font-size: 18px;
+}
+.feature-title {
+  font-family: var(--serif);
+  font-size: 19px; font-weight: 600;
+  color: var(--parchment); margin-bottom: 10px;
+  line-height: 1.3;
+}
+.feature-desc {
+  font-size: 14px; color: var(--slate); line-height: 1.7; font-weight: 300;
+}
+.feature-tags {
+  display: flex; flex-wrap: wrap; gap: 6px; margin-top: 16px;
+}
+.feature-tag {
+  font-family: var(--mono); font-size: 10px; color: var(--gold);
+  border: 1px solid var(--border-light); border-radius: 4px;
+  padding: 3px 8px; letter-spacing: 0.5px;
+}
+
+/* ─── HOW IT WORKS ─────────────────────────────────────────────────── */
+.how {
+  padding: 100px 24px;
+  background: linear-gradient(180deg, transparent 0%, rgba(201,151,58,0.03) 50%, transparent 100%);
+}
+.how-inner { max-width: 900px; margin: 0 auto; }
+.how-header { text-align: center; margin-bottom: 72px; }
+
+.steps {
+  display: flex; flex-direction: column; gap: 0;
+  position: relative;
+}
+.steps::before {
+  content: '';
+  position: absolute;
+  left: 28px; top: 40px; bottom: 40px;
+  width: 1px;
+  background: linear-gradient(180deg, var(--gold) 0%, var(--crimson) 100%);
+  opacity: 0.3;
+}
+
+.step {
+  display: flex; gap: 32px; align-items: flex-start;
+  padding: 36px 0;
+  border-bottom: 1px solid var(--border);
+}
+.step:last-child { border-bottom: none; }
+
+.step-num {
+  width: 56px; height: 56px; flex-shrink: 0;
+  border: 1px solid var(--border-light);
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--serif); font-size: 22px; font-weight: 700;
+  color: var(--gold);
+  background: var(--ink-2);
+  position: relative; z-index: 1;
+}
+.step-body {}
+.step-title {
+  font-family: var(--serif); font-size: 22px; font-weight: 600;
+  color: var(--parchment); margin-bottom: 10px; line-height: 1.3;
+}
+.step-desc { font-size: 15px; color: var(--slate); line-height: 1.75; font-weight: 300; }
+.step-pills {
+  display: flex; flex-wrap: wrap; gap: 6px; margin-top: 14px;
+}
+.step-pill {
+  font-size: 12px; color: var(--parchment);
+  background: rgba(255,255,255,0.05);
+  border: 1px solid var(--border);
+  border-radius: 100px; padding: 4px 12px;
+}
+
+/* ─── WHO IT'S FOR ─────────────────────────────────────────────────── */
+.who {
+  padding: 100px 24px;
+  max-width: 1100px; margin: 0 auto;
+}
+.who-grid {
+  display: grid; grid-template-columns: repeat(2, 1fr); gap: 24px;
+  margin-top: 64px;
+}
+.who-card {
+  border: 1px solid var(--border);
+  border-radius: 16px; padding: 36px;
+  background: var(--ink-2);
+  position: relative; overflow: hidden;
+  transition: border-color 0.25s, transform 0.25s;
+}
+.who-card:hover {
+  border-color: var(--border-light);
+  transform: translateY(-3px);
+}
+.who-card::before {
+  content: '';
+  position: absolute; top: 0; left: 0; right: 0; height: 2px;
+  background: linear-gradient(90deg, var(--gold), var(--crimson));
+  opacity: 0;
+  transition: opacity 0.25s;
+}
+.who-card:hover::before { opacity: 1; }
+.who-role {
+  font-family: var(--mono); font-size: 11px; color: var(--gold);
+  text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 14px;
+}
+.who-quote {
+  font-family: var(--serif); font-size: 18px; color: var(--parchment);
+  line-height: 1.6; font-style: italic; margin-bottom: 16px;
+}
+.who-detail {
+  font-size: 14px; color: var(--slate); line-height: 1.7; font-weight: 300;
+}
+
+/* ─── PRICING ──────────────────────────────────────────────────────── */
+.pricing {
+  padding: 100px 24px;
+  background: linear-gradient(180deg, transparent 0%, rgba(13,17,23,0.5) 100%);
+}
+.pricing-inner { max-width: 900px; margin: 0 auto; }
+.pricing-header { text-align: center; margin-bottom: 64px; }
+
+.pricing-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 24px;
+  align-items: start;
+}
+
+.pricing-card {
+  border: 1px solid var(--border);
+  border-radius: 16px; padding: 40px;
+  background: var(--ink-2);
+}
+.pricing-card.featured {
+  border-color: var(--gold);
+  background: linear-gradient(135deg, rgba(201,151,58,0.08), rgba(201,151,58,0.03));
+  position: relative;
+}
+.pricing-badge {
+  position: absolute; top: -12px; left: 50%; transform: translateX(-50%);
+  background: var(--gold); color: var(--ink);
+  font-family: var(--mono); font-size: 10px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 1px;
+  border-radius: 100px; padding: 5px 16px;
+}
+.plan-name {
+  font-family: var(--serif); font-size: 24px; font-weight: 600;
+  color: var(--parchment); margin-bottom: 6px;
+}
+.plan-price {
+  font-size: 48px; font-weight: 700; color: var(--parchment);
+  letter-spacing: -1px; line-height: 1;
+  margin: 16px 0 4px;
+}
+.plan-price span { font-size: 18px; font-weight: 400; color: var(--slate); }
+.plan-cadence { font-size: 13px; color: var(--slate); margin-bottom: 28px; }
+.plan-features { list-style: none; display: flex; flex-direction: column; gap: 12px; margin-bottom: 32px; }
+.plan-features li {
+  display: flex; align-items: flex-start; gap: 10px;
+  font-size: 14px; color: var(--slate); line-height: 1.5;
+}
+.plan-features li::before {
+  content: '✓'; color: var(--gold); font-weight: 700;
+  flex-shrink: 0; margin-top: 1px;
+}
+.plan-features li.dim::before { color: var(--border); }
+.plan-features li.dim { color: rgba(136,146,164,0.4); }
+
+.btn-plan {
+  width: 100%; padding: 14px;
+  border-radius: 8px; font-size: 14px; font-weight: 600;
+  font-family: var(--sans); cursor: pointer;
+  text-align: center; text-decoration: none;
+  display: block; transition: all 0.2s;
+}
+.btn-plan-ghost {
+  border: 1px solid var(--border);
+  background: none; color: var(--parchment);
+}
+.btn-plan-ghost:hover { border-color: var(--gold); color: var(--gold); }
+.btn-plan-gold {
+  background: var(--gold); color: var(--ink); border: none;
+  box-shadow: 0 4px 20px rgba(201,151,58,0.3);
+}
+.btn-plan-gold:hover { background: var(--gold-light); transform: translateY(-1px); }
+
+/* ─── TESTIMONIALS ─────────────────────────────────────────────────── */
+.testimonials {
+  padding: 100px 24px;
+  max-width: 1100px; margin: 0 auto;
+}
+.testimonials-grid {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px;
+  margin-top: 64px;
+}
+.testi-card {
+  background: var(--ink-2); border: 1px solid var(--border);
+  border-radius: 16px; padding: 32px;
+  transition: border-color 0.25s;
+}
+.testi-card:hover { border-color: var(--border-light); }
+.testi-stars {
+  color: var(--gold); font-size: 14px; margin-bottom: 14px; letter-spacing: 2px;
+}
+.testi-quote {
+  font-family: var(--serif); font-size: 16px; color: var(--parchment);
+  line-height: 1.7; font-style: italic; margin-bottom: 20px;
+}
+.testi-author { display: flex; align-items: center; gap: 12px; }
+.testi-avatar {
+  width: 36px; height: 36px; border-radius: 50%;
+  background: linear-gradient(135deg, var(--gold), var(--crimson));
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--serif); font-size: 14px; font-weight: 700;
+  color: var(--ink); flex-shrink: 0;
+}
+.testi-name { font-size: 13px; font-weight: 600; color: var(--parchment); }
+.testi-role { font-size: 12px; color: var(--slate); }
+
+/* ─── CTA ──────────────────────────────────────────────────────────── */
+.cta-section {
+  padding: 100px 24px 120px;
+  text-align: center;
+  position: relative; overflow: hidden;
+}
+.cta-section::before {
+  content: '';
+  position: absolute; inset: 0;
+  background:
+    radial-gradient(ellipse 70% 60% at 50% 50%, rgba(201,151,58,0.07) 0%, transparent 70%);
+}
+.cta-inner { position: relative; z-index: 1; max-width: 640px; margin: 0 auto; }
+.cta-heading {
+  font-family: var(--serif);
+  font-size: clamp(36px, 5vw, 60px);
+  font-weight: 700; line-height: 1.1;
+  letter-spacing: -1px; color: var(--parchment);
+  margin-bottom: 20px;
+}
+.cta-heading em { font-style: italic; color: var(--gold); }
+.cta-sub {
+  font-size: 17px; color: var(--slate); line-height: 1.7;
+  margin-bottom: 40px; font-weight: 300;
+}
+.cta-email {
+  display: flex; gap: 10px; max-width: 460px; margin: 0 auto;
+  flex-wrap: wrap; justify-content: center;
+}
+.cta-input {
+  flex: 1; min-width: 200px;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 8px; padding: 14px 18px;
+  font-family: var(--sans); font-size: 15px;
+  color: var(--parchment); outline: none;
+  transition: border-color 0.2s;
+}
+.cta-input::placeholder { color: var(--slate); }
+.cta-input:focus { border-color: var(--gold); }
+.cta-disclaimer {
+  font-size: 12px; color: var(--slate); margin-top: 16px; line-height: 1.6;
+}
+
+/* ─── FOOTER ───────────────────────────────────────────────────────── */
+footer {
+  border-top: 1px solid var(--border);
+  padding: 48px 40px;
+  display: flex; align-items: center; justify-content: space-between;
+  flex-wrap: wrap; gap: 20px;
+}
+.footer-logo {
+  font-family: var(--serif); font-size: 18px; font-weight: 700;
+  color: var(--parchment); text-decoration: none;
+}
+.footer-logo span { color: var(--gold); }
+.footer-links {
+  display: flex; gap: 28px; flex-wrap: wrap;
+}
+.footer-links a {
+  font-size: 13px; color: var(--slate); text-decoration: none;
+  transition: color 0.2s;
+}
+.footer-links a:hover { color: var(--parchment); }
+.footer-copy {
+  font-size: 12px; color: rgba(136,146,164,0.5);
+}
+
+/* ─── SCROLL ANIMATIONS ─────────────────────────────────────────────── */
+.reveal {
+  opacity: 0; transform: translateY(24px);
+  transition: opacity 0.7s ease, transform 0.7s ease;
+}
+.reveal.visible { opacity: 1; transform: translateY(0); }
+
+/* ─── RESPONSIVE ────────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  nav { padding: 0 20px; }
+  .nav-links { display: none; }
+  .features-grid { grid-template-columns: 1fr; }
+  .who-grid { grid-template-columns: 1fr; }
+  .pricing-grid { grid-template-columns: 1fr; }
+  .testimonials-grid { grid-template-columns: 1fr; }
+  .demo-row { grid-template-columns: 1fr; }
+  footer { flex-direction: column; align-items: flex-start; gap: 24px; }
+  .steps::before { left: 27px; }
+}
+</style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav>
+  <a href="#" class="nav-logo">Passage<span>Lab</span></a>
+  <div class="nav-links">
+    <a href="#features">Features</a>
+    <a href="#how">How it works</a>
+    <a href="#pricing">Pricing</a>
+    <a href="#about">About</a>
+  </div>
+  <div class="nav-cta">
+    <a href="#" class="btn-ghost">Sign in</a>
+    <a href="#waitlist" class="btn-primary">Get early access</a>
+  </div>
+</nav>
+
+<!-- HERO -->
+<section class="hero">
+  <div class="hero-bg"></div>
+
+  <div class="hero-eyebrow">
+    <span class="eyebrow-dot"></span>
+    Now in early access
+  </div>
+
+  <h1 class="hero-headline">
+    The research platform<br/>
+    <em>Bible teachers</em><br/>
+    have been waiting for
+  </h1>
+
+  <p class="hero-sub">
+    Enter any passage. Get original languages, historical context, archaeology, theology, commentary, illustrations, and sermon outlines — in seconds.
+  </p>
+
+  <div class="hero-actions">
+    <a href="#waitlist" class="btn-hero">Start studying free →</a>
+    <a href="#how" class="btn-hero-ghost">See how it works</a>
+  </div>
+
+  <p class="hero-proof">
+    <strong>Free to start.</strong> Used by pastors, small group leaders, and seminary students.
+  </p>
+
+  <!-- Browser mockup -->
+  <div class="demo-wrap">
+    <div class="demo-chrome">
+      <div class="demo-topbar">
+        <span class="demo-dot r"></span>
+        <span class="demo-dot y"></span>
+        <span class="demo-dot g"></span>
+        <span class="demo-url">passagelab.app — Romans 8:1-11</span>
+      </div>
+      <div class="demo-body">
+        <div class="demo-search">
+          <div class="demo-input">Romans 8:1-11</div>
+          <button class="demo-btn">Study ↗</button>
+        </div>
+        <div class="demo-tabs">
+          <div class="demo-tab active">Overview</div>
+          <div class="demo-tab">Language</div>
+          <div class="demo-tab">Historical</div>
+          <div class="demo-tab">Archaeology</div>
+          <div class="demo-tab">Theology</div>
+          <div class="demo-tab">Christ</div>
+          <div class="demo-tab">Commentary</div>
+          <div class="demo-tab">Illustrations</div>
+          <div class="demo-tab">Outline</div>
+          <div class="demo-tab">Manuscript</div>
+        </div>
+        <div class="demo-highlight" style="margin-bottom:16px;">
+          <div class="demo-highlight-label">Big Idea</div>
+          <div class="demo-highlight-text">Because Christ has fully satisfied God's condemnation, believers walk not under the law of sin and death but under the liberating law of the Spirit who gives life.</div>
+        </div>
+        <div class="demo-row">
+          <div class="demo-block">
+            <div class="demo-block-label">Key Word — Greek</div>
+            <div class="demo-block-text">
+              <strong style="font-size:20px;font-family:'Playfair Display',serif;color:#C9973A;">κατάκριμα</strong><br/>
+              <span style="font-style:italic;font-size:12px;">katakrima · G2631</span><br/><br/>
+              Not merely guilt, but the executed sentence — the actual penalty falling on the condemned. Paul's point: that verdict has been <strong>fully discharged</strong> in Christ.
+            </div>
+          </div>
+          <div class="demo-block">
+            <div class="demo-block-label">Historical Context</div>
+            <div class="demo-block-text">
+              Roman courts condemned with finality — no appeal for the lower classes. Paul's readers would feel the weight of <strong>no condemnation</strong> viscerally. Acquittal was resurrection language.
+            </div>
+          </div>
+        </div>
+        <div class="demo-block" style="margin-top:12px;">
+          <div class="demo-block-label">Archaeology — Recent Finding</div>
+          <div class="demo-block-text">
+            Excavations beneath the Mamertine Prison (2023) uncovered Roman-era legal documents confirming the permanence of capital condemnation orders — illuminating exactly the legal imagery Paul invokes in verse 1.
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- SOCIAL PROOF -->
+<section class="proof-section">
+  <div class="proof-label">Trusted by Bible teachers everywhere</div>
+  <div class="proof-users">
+    <span class="proof-user">Lead Pastors</span>
+    <span class="proof-user">·</span>
+    <span class="proof-user">Seminary Students</span>
+    <span class="proof-user">·</span>
+    <span class="proof-user">Small Group Leaders</span>
+    <span class="proof-user">·</span>
+    <span class="proof-user">Sunday School Teachers</span>
+    <span class="proof-user">·</span>
+    <span class="proof-user">Youth Workers</span>
+    <span class="proof-user">·</span>
+    <span class="proof-user">Bible College Professors</span>
+  </div>
+</section>
+
+<!-- FEATURES -->
+<section class="features" id="features">
+  <div class="reveal">
+    <div class="section-eyebrow">Everything in one place</div>
+    <h2 class="section-heading">Every research tool a Bible teacher needs — <em>assembled for you</em></h2>
+    <p class="section-sub">Stop jumping between a dozen tabs. PassageLab builds a complete research dossier around any passage in seconds.</p>
+  </div>
+
+  <div class="features-grid reveal">
+    <div class="feature-card">
+      <div class="feature-icon">📜</div>
+      <div class="feature-title">Original Languages</div>
+      <div class="feature-desc">Greek and Hebrew word studies with Strong's numbers, morphology, semantic range, and what each word unlocks for preaching.</div>
+      <div class="feature-tags">
+        <span class="feature-tag">Greek</span>
+        <span class="feature-tag">Hebrew</span>
+        <span class="feature-tag">Aramaic</span>
+        <span class="feature-tag">Interlinear</span>
+      </div>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">🏛️</div>
+      <div class="feature-title">Archaeology & History</div>
+      <div class="feature-desc">Real archaeological discoveries, excavation findings, and historical context that bring the ancient world to life for modern congregations.</div>
+      <div class="feature-tags">
+        <span class="feature-tag">Excavations</span>
+        <span class="feature-tag">Artifacts</span>
+        <span class="feature-tag">Inscriptions</span>
+      </div>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">✝️</div>
+      <div class="feature-title">Christ Connection Engine</div>
+      <div class="feature-desc">Every passage mapped to Christ — foreshadowing, fulfillment, typology, and the legitimate exegetical path from text to gospel.</div>
+      <div class="feature-tags">
+        <span class="feature-tag">Typology</span>
+        <span class="feature-tag">Redemptive History</span>
+      </div>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">📖</div>
+      <div class="feature-title">Commentary Hub</div>
+      <div class="feature-desc">Spurgeon, Matthew Henry, Calvin, and modern evangelical scholarship — synthesized, compared, and filtered for what matters most.</div>
+      <div class="feature-tags">
+        <span class="feature-tag">Spurgeon</span>
+        <span class="feature-tag">Calvin</span>
+        <span class="feature-tag">Modern</span>
+      </div>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">💡</div>
+      <div class="feature-title">Illustration Engine</div>
+      <div class="feature-desc">History, science, culture, church history, and human experience — vivid illustrations ready to drop into any message.</div>
+      <div class="feature-tags">
+        <span class="feature-tag">History</span>
+        <span class="feature-tag">Science</span>
+        <span class="feature-tag">Culture</span>
+        <span class="feature-tag">Opening hooks</span>
+      </div>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">🖊️</div>
+      <div class="feature-title">Sermon Builder</div>
+      <div class="feature-desc">Full outlines, manuscript drafts, small group questions, and children's lessons — everything downstream of the text, built automatically.</div>
+      <div class="feature-tags">
+        <span class="feature-tag">Outline</span>
+        <span class="feature-tag">Manuscript</span>
+        <span class="feature-tag">Small group</span>
+        <span class="feature-tag">Kids</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- HOW IT WORKS -->
+<section class="how" id="how">
+  <div class="how-inner">
+    <div class="how-header reveal">
+      <div class="section-eyebrow">How it works</div>
+      <h2 class="section-heading">From passage to pulpit-ready in minutes</h2>
+      <p class="section-sub">PassageLab does the research. You do the teaching.</p>
+    </div>
+
+    <div class="steps">
+      <div class="step reveal">
+        <div class="step-num">1</div>
+        <div class="step-body">
+          <div class="step-title">Enter any passage</div>
+          <div class="step-desc">Type any book, chapter, or verse range. Old Testament, New Testament, a single verse or an entire chapter. PassageLab recognizes it all.</div>
+          <div class="step-pills">
+            <span class="step-pill">John 3:16</span>
+            <span class="step-pill">Romans 8</span>
+            <span class="step-pill">Psalm 23</span>
+            <span class="step-pill">Genesis 22:1-14</span>
+            <span class="step-pill">Isaiah 53</span>
+          </div>
+        </div>
+      </div>
+      <div class="step reveal">
+        <div class="step-num">2</div>
+        <div class="step-body">
+          <div class="step-title">Your complete research dossier is assembled</div>
+          <div class="step-desc">In seconds, PassageLab generates fifteen research modules — original languages, historical context, archaeology, theology, cross-references, commentary synthesis, illustrations, sermon outline, manuscript draft, small group questions, and children's lesson — all in one organized view.</div>
+        </div>
+      </div>
+      <div class="step reveal">
+        <div class="step-num">3</div>
+        <div class="step-body">
+          <div class="step-title">Study, build, and teach</div>
+          <div class="step-desc">Explore every tab. Save what you need. Build your message. The platform gives you the depth of a seminary research library in the time it used to take to open three browser tabs.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- WHO IT'S FOR -->
+<section class="who">
+  <div class="reveal">
+    <div class="section-eyebrow">Who it's for</div>
+    <h2 class="section-heading">Built for <em>every</em> kind of Bible teacher</h2>
+  </div>
+  <div class="who-grid">
+    <div class="who-card reveal">
+      <div class="who-role">Lead Pastor</div>
+      <div class="who-quote">"I used to spend 8–10 hours in sermon prep. PassageLab cuts that in half without cutting depth."</div>
+      <div class="who-detail">Weekly sermon prep, series planning, staff equipping. Everything a senior pastor needs to teach faithfully and efficiently.</div>
+    </div>
+    <div class="who-card reveal">
+      <div class="who-role">Small Group Leader</div>
+      <div class="who-quote">"I'm not a theologian. But now I walk into my group actually knowing the passage."</div>
+      <div class="who-detail">Discussion questions, historical context, and application prompts designed for small group leaders who study on a Tuesday night.</div>
+    </div>
+    <div class="who-card reveal">
+      <div class="who-role">Seminary Student</div>
+      <div class="who-quote">"It's like having commentary access, a language professor, and a research assistant in one tab."</div>
+      <div class="who-detail">Original language tools, systematic theology connections, commentary synthesis, and exegetical notes for deep academic study.</div>
+    </div>
+    <div class="who-card reveal">
+      <div class="who-role">Children's & Youth Worker</div>
+      <div class="who-quote">"The children's module alone is worth it. Object lessons, activities, parent take-homes — ready to go."</div>
+      <div class="who-detail">Age-appropriate story retellings, object lessons, crafts, memory verses, and parent connection prompts. Built for every age group.</div>
+    </div>
+  </div>
+</section>
+
+<!-- PRICING -->
+<section class="pricing" id="pricing">
+  <div class="pricing-inner">
+    <div class="pricing-header reveal">
+      <div class="section-eyebrow">Pricing</div>
+      <h2 class="section-heading" style="margin:0 auto;text-align:center;">Start free.<br/><em>Go deeper</em> when you're ready.</h2>
+      <p class="section-sub" style="margin:16px auto 0;text-align:center;">No credit card required to start.</p>
+    </div>
+    <div class="pricing-grid reveal">
+      <div class="pricing-card">
+        <div class="plan-name">Free</div>
+        <div class="plan-price">$0</div>
+        <div class="plan-cadence">Forever free</div>
+        <ul class="plan-features">
+          <li>5 passage studies per month</li>
+          <li>Overview, language & history tabs</li>
+          <li>Basic sermon outline</li>
+          <li>Small group questions</li>
+          <li class="dim">Archaeology & commentary</li>
+          <li class="dim">Illustration engine</li>
+          <li class="dim">Full manuscript generation</li>
+          <li class="dim">Children's lesson builder</li>
+          <li class="dim">Saved library</li>
+        </ul>
+        <a href="#waitlist" class="btn-plan btn-plan-ghost">Get started free</a>
+      </div>
+      <div class="pricing-card featured">
+        <div class="pricing-badge">Most popular</div>
+        <div class="plan-name">Pro</div>
+        <div class="plan-price">$19<span>/mo</span></div>
+        <div class="plan-cadence">or $15/mo billed annually</div>
+        <ul class="plan-features">
+          <li>Unlimited passage studies</li>
+          <li>All 15 research modules</li>
+          <li>Full sermon manuscript generation</li>
+          <li>Archaeology & commentary hub</li>
+          <li>Illustration engine (6 types)</li>
+          <li>Children's & youth lesson builder</li>
+          <li>News & current research tab</li>
+          <li>Saved library (unlimited)</li>
+          <li>Priority support</li>
+        </ul>
+        <a href="#waitlist" class="btn-plan btn-plan-gold">Start free trial →</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- TESTIMONIALS -->
+<section class="testimonials">
+  <div class="reveal">
+    <div class="section-eyebrow">What teachers are saying</div>
+    <h2 class="section-heading">Real feedback from <em>real</em> teachers</h2>
+  </div>
+  <div class="testimonials-grid">
+    <div class="testi-card reveal">
+      <div class="testi-stars">★★★★★</div>
+      <div class="testi-quote">"I've tried every Bible study tool on the market. PassageLab is the first one that actually thinks like a preacher."</div>
+      <div class="testi-author">
+        <div class="testi-avatar">JM</div>
+        <div>
+          <div class="testi-name">James M.</div>
+          <div class="testi-role">Lead Pastor, Dallas TX</div>
+        </div>
+      </div>
+    </div>
+    <div class="testi-card reveal">
+      <div class="testi-stars">★★★★★</div>
+      <div class="testi-quote">"The archaeology tab alone changed how I teach. My congregation keeps asking how I find these things."</div>
+      <div class="testi-author">
+        <div class="testi-avatar">SR</div>
+        <div>
+          <div class="testi-name">Sarah R.</div>
+          <div class="testi-role">Bible Study Leader, Atlanta GA</div>
+        </div>
+      </div>
+    </div>
+    <div class="testi-card reveal">
+      <div class="testi-stars">★★★★★</div>
+      <div class="testi-quote">"As a seminary student with limited commentary access, PassageLab levels the playing field completely."</div>
+      <div class="testi-author">
+        <div class="testi-avatar">DK</div>
+        <div>
+          <div class="testi-name">Daniel K.</div>
+          <div class="testi-role">M.Div Student, Gordon-Conwell</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- CTA -->
+<section class="cta-section" id="waitlist">
+  <div class="cta-inner reveal">
+    <h2 class="cta-heading">Ready to study<br/><em>deeper?</em></h2>
+    <p class="cta-sub">Join thousands of Bible teachers getting early access to PassageLab. Free to start — no credit card required.</p>
+    <div class="cta-email">
+      <input type="email" class="cta-input" placeholder="your@email.com"/>
+      <a href="#" class="btn-hero">Get early access →</a>
+    </div>
+    <p class="cta-disclaimer">Free forever tier available. Upgrade anytime. Cancel anytime.</p>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <a href="#" class="footer-logo">Passage<span>Lab</span></a>
+  <div class="footer-links">
+    <a href="#">Features</a>
+    <a href="#">Pricing</a>
+    <a href="#">About</a>
+    <a href="#">Blog</a>
+    <a href="#">Privacy</a>
+    <a href="#">Terms</a>
+  </div>
+  <div class="footer-copy">© 2026 PassageLab. All rights reserved.</div>
+</footer>
+
+<script>
+// Scroll reveal
+const observer = new IntersectionObserver((entries) => {
+  entries.forEach(e => {
+    if (e.isIntersecting) {
+      e.target.classList.add('visible');
+      observer.unobserve(e.target);
+    }
+  });
+}, { threshold: 0.1, rootMargin: '0px 0px -40px 0px' });
+
+document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+
+// Nav background on scroll
+const nav = document.querySelector('nav');
+window.addEventListener('scroll', () => {
+  nav.style.background = window.scrollY > 40
+    ? 'rgba(13,17,23,0.97)'
+    : 'rgba(13,17,23,0.85)';
+});
+</script>
+</body>
+</html>
