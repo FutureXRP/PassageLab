@@ -7,12 +7,27 @@ const anthropic = new Anthropic({
 })
 
 const MODEL = 'claude-sonnet-4-6'
-const MAX_TOKENS = 4000
+const MAX_TOKENS = 6000
 
 function extractJSON(raw: string): unknown {
   const match = raw.match(/\{[\s\S]*\}/)
   if (!match) throw new Error('No JSON object found in response')
-  return JSON.parse(match[0])
+  try {
+    return JSON.parse(match[0])
+  } catch (e) {
+    // Try to find the largest valid JSON object
+    const str = match[0]
+    let depth = 0
+    let end = 0
+    for (let i = 0; i < str.length; i++) {
+      if (str[i] === '{') depth++
+      if (str[i] === '}') {
+        depth--
+        if (depth === 0) { end = i; break }
+      }
+    }
+    return JSON.parse(str.slice(0, end + 1))
+  }
 }
 
 async function callClaude(prompt: string): Promise<unknown> {
