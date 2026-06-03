@@ -2,9 +2,8 @@ import type { Config } from 'tailwindcss'
 
 const config: Config = {
   content: [
-    './pages/**/*.{js,ts,jsx,tsx,mdx}',
-    './components/**/*.{js,ts,jsx,tsx,mdx}',
     './app/**/*.{js,ts,jsx,tsx,mdx}',
+    './components/**/*.{js,ts,jsx,tsx,mdx}',
   ],
   theme: {
     extend: {
@@ -19,15 +18,11 @@ const config: Config = {
           2: '#1C2333',
         },
         parchment: '#F5F0E8',
-        cream: '#FAF7F2',
         gold: {
           DEFAULT: '#C9973A',
           light: '#E8B84B',
         },
-        crimson: {
-          DEFAULT: '#8B1A1A',
-          light: '#B22222',
-        },
+        crimson: '#8B1A1A',
         slate: '#8892A4',
       },
     },
