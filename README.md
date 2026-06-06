@@ -1,100 +1,87 @@
 # PassageLab
 ## The Ultimate AI-Powered Research Platform for Bible Teachers, Preachers, Pastors, Small Group Leaders, and Students
 
----
-
-## Vision
-
-PassageLab exists to become the most comprehensive biblical research and teaching platform ever created.
-
-Rather than forcing pastors and teachers to spend hours searching dozens of resources, PassageLab brings together biblical text, original languages, historical context, archaeology, commentaries, theology, illustrations, cross-references, maps, timelines, scholarly resources, and AI-powered teaching tools into a single research environment.
-
-> Give every Bible teacher access to the world's best biblical research tools in seconds.
+**Live:** [passage-lab.vercel.app](https://passage-lab.vercel.app)
 
 ---
 
-## Mission
+## Current Status — June 6, 2026
 
-Equip every Bible teacher on earth with world-class study tools so they can teach God's Word with greater clarity, confidence, depth, and faithfulness.
+### ✅ Working
+- Landing page with role selector (Pastor, Theologian, Teacher, Small Group, Youth, Children)
+- Up to 2 roles selectable — tab union generated automatically
+- Streaming architecture — parallel tab generation with progressive UI
+- Tabs light up gold when ready, grayed out while generating
+- 19 tabs total — only tabs relevant to selected roles are generated
+- Bible text fetched from bible-api.com (KJV, WEB, ASV, YLT — public domain, no key needed)
+- Amazon affiliate links on Book List tab
+- Consistent Playfair Display + DM Sans typography throughout
 
----
+### 🔧 Recent Fixes (this session)
+- Language and Commentary tabs now use 8000 MAX_TOKENS (were failing at 4000)
+- Heavy tabs (language, commentary, manuscript, fathers) run sequentially to avoid truncation
+- Light tabs run in parallel batches of 3
+- News, Outline, Manuscript tabs now correctly included when Pastor + Theologian selected
+- Font inconsistency fixed — Playfair Display for headings, DM Sans for body everywhere
+- Cross-refs tab empty data bug fixed
 
-## What It Does
-
-A pastor enters:
-
-```
-John 2:1-11
-```
-
-Within seconds PassageLab generates:
-
-- Full passage analysis
-- Historical context & cultural background
-- Archaeological discoveries
-- Original language insights (Greek & Hebrew)
-- Commentary summaries
-- Cross references & OT connections
-- Christological significance
-- Teaching outlines & sermon manuscripts
-- Small group questions
-- Children's & youth lessons
-- Illustrations, quotes, maps, timelines
-- Application points
-
-Everything centered around one passage.
+### 🚧 Next Steps
+1. **Supabase** — set up auth, user profiles, usage tracking
+2. **Stripe** — wire payments for Free / Church ($49) / Pro ($100) tiers
+3. **Usage limits** — enforce study counts per plan per month
+4. **Account page** — profile, subscription, upgrade/downgrade
+5. **Study caching** — store completed studies in Supabase, time-based expiry
+6. **ESV API** — add ESV via esv.org/api (free key, requires attribution)
+7. **passagelab.app** — point custom domain to Vercel
 
 ---
 
-## Product Philosophy
+## Architecture
 
-Most Bible study platforms provide resources.
-
-**PassageLab provides intelligence.**
-
-Instead of requiring users to search multiple databases manually, the platform assembles a complete research dossier around a passage and presents it in a coherent, organized format designed specifically for teaching and preaching.
-
----
-
-## Tech Stack
-
+### Tech Stack
 | Layer | Technology |
 |-------|-----------|
-| Frontend | Next.js 15, TypeScript, React |
-| Backend | Next.js API Routes |
-| Database | Supabase (PostgreSQL) |
-| AI | Anthropic Claude (claude-sonnet-4-6) |
-| Styling | Inline styles + CSS variables |
-| Hosting | Vercel |
+| Frontend | Next.js 15.3.8, TypeScript, React |
+| Backend | Next.js API Routes (streaming SSE) |
+| AI | Anthropic Claude Sonnet 4.6 |
+| Bible Text | bible-api.com (free, no key) |
+| Hosting | Vercel Pro ($20/mo, maxDuration=300) |
+| Database | Supabase (schema written, not yet wired) |
 
----
+### Key Files
+| File | Purpose |
+|------|---------|
+| `app/page.tsx` | Landing page with role selector |
+| `app/study/[passage]/page.tsx` | Study page — streaming SSE consumer |
+| `app/api/study/route.ts` | Streaming API route — generates tabs in parallel |
+| `lib/prompts.ts` | Per-tab prompt builders + role→tab mapping |
+| `lib/bible-api.ts` | Fetches KJV/WEB/ASV/YLT from bible-api.com |
+| `lib/study-engine.ts` | Stub — main logic now in route.ts |
+| `types/index.ts` | TypeScript interfaces for all 19 tabs |
 
-## Features
+### Streaming Architecture
+1. User selects roles + enters passage → hits Study
+2. API route opens SSE stream
+3. `init` event sent immediately with tab list
+4. Bible text fetched in parallel from bible-api.com
+5. Light tabs generated in parallel batches of 3 (4000 tokens each)
+6. Heavy tabs (language, commentary, manuscript, fathers) generated sequentially (8000 tokens each)
+7. Each tab sends `tab_start` then `tab_done` events as it completes
+8. Frontend renders tabs progressively — tabs become clickable as they complete
 
-### Passage Dashboard (15 Research Tabs)
-
-| Tab | Content |
-|-----|---------|
-| Overview | Summary, big idea, themes, teaching opportunities |
-| Scripture | ESV, NIV text with verse-by-verse exegetical notes |
-| Language | Greek/Hebrew word studies with Strong's numbers |
-| Historical | Political, religious, economic, social context |
-| Archaeology | Real excavations and discoveries that illuminate the text |
-| Theology | God, Christ, Spirit, salvation, kingdom, covenant |
-| Cross-refs | Direct, prophetic, typological, thematic references |
-| Christ | Foreshadowing, fulfillment, gospel thread |
-| Commentary | Spurgeon, Matthew Henry, Calvin, modern scholarship |
-| Illustrations | History, science, culture, church history, opening hooks |
-| News & Research | Recent archaeological and scholarly findings |
-| Outline | Full sermon outline with subpoints and applications |
-| Manuscript | Written intro, body, and conclusion in preaching voice |
-| Small Group | Icebreaker, 9 discussion questions, activity, takeaway |
-| Children | Big truth, memory verse, story, object lesson, craft |
+### Role → Tab Mapping
+| Role | Tabs Generated |
+|------|---------------|
+| Pastor | overview, scripture, language, history, archaeology, christ, commentary, illustrations, outline, manuscript |
+| Theologian | overview, scripture, language, history, archaeology, theology, crossref, christ, commentary, fathers, books, news |
+| Teacher | overview, scripture, history, christ, commentary, illustrations, outline, smallgroup, books |
+| Small Group | overview, scripture, history, christ, illustrations, smallgroup |
+| Youth | overview, scripture, history, christ, illustrations, youth |
+| Children | overview, scripture, illustrations, children |
 
 ---
 
 ## Pricing
-
 | Plan | Price | Studies/Month |
 |------|-------|---------------|
 | Free | $0 | 5 |
@@ -103,58 +90,20 @@ Instead of requiring users to search multiple databases manually, the platform a
 
 ---
 
-## Roadmap
-
-### Phase 1 (Current)
-- [x] Landing page
-- [x] Passage dashboard (15 tabs)
-- [x] Claude AI integration
-- [ ] Supabase auth
-- [ ] Stripe payments
-- [ ] Usage tracking & tier enforcement
-
-### Phase 2
-- [ ] Biblical Atlas — interactive maps
-- [ ] Biblical Character Database
-- [ ] Biblical Event Database
-- [ ] Doctrine Explorer
-- [ ] Church History Timeline
-- [ ] Original Language Academy
-- [ ] AI Preaching Coach
-
-### Phase 3
-- [ ] Biblical Knowledge Graph
-- [ ] AI Teaching Co-Pilot
-- [ ] Biblical World Simulation
-
----
-
-## Local Development
-
-```bash
-# Clone the repo
-git clone https://github.com/FutureXRP/PassageLab.git
-cd PassageLab
-
-# Install dependencies
-npm install
-
-# Set up environment variables
-cp .env.local.example .env.local
-# Add your ANTHROPIC_API_KEY to .env.local
-
-# Run the dev server
-npm run dev
-```
-
-Open [http://localhost:3000](http://localhost:3000)
+## API Cost
+| Tab Type | MAX_TOKENS | Est. Cost (Sonnet) |
+|----------|-----------|-------------------|
+| Light tabs | 4,000 | ~$0.02 each |
+| Heavy tabs | 8,000 | ~$0.06 each |
+| Typical Pastor study (10 tabs) | — | ~$0.28 |
+| Typical Pastor+Theologian (15 tabs) | — | ~$0.45 |
 
 ---
 
 ## Environment Variables
-
 ```
 ANTHROPIC_API_KEY=sk-ant-...
+NEXT_PUBLIC_AMAZON_TAG=passagelab-20
 NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
 SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
@@ -163,22 +112,23 @@ NEXT_PUBLIC_APP_URL=https://passagelab.app
 
 ---
 
-## Success Metric
-
-A pastor preparing a sermon should never need to leave PassageLab.
-
-The platform should provide everything necessary for faithful exposition, deep study, rich illustration, historical understanding, theological accuracy, and practical application — within a single unified research environment.
-
----
-
-## Ultimate Goal
-
-Become the definitive research and teaching platform for Bible teachers worldwide. A place where every sermon, lesson, Bible study, devotional, and theological inquiry begins.
-
-> *"Helping teachers teach God's Word with greater depth, clarity, confidence, and faithfulness."*
+## Local Development
+```bash
+git clone https://github.com/FutureXRP/PassageLab.git
+cd PassageLab
+npm install
+echo "ANTHROPIC_API_KEY=sk-ant-..." > .env.local
+npm run dev
+```
 
 ---
 
-## Live Site
+## Supabase Schema (written, not yet run)
+Location: `supabase/schema.sql`
+Tables: `waitlist`, `profiles`, `studies`, `usage`
+RLS policies written. Ready to deploy once Supabase project created.
 
-[passagelab.app](https://passagelab.app)
+---
+
+## Mission
+> Equip every Bible teacher on earth with world-class study tools so they can teach God's Word with greater clarity, confidence, depth, and faithfulness.
