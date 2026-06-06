@@ -1,5 +1,3 @@
-// ─── STUDY DATA ──────────────────────────────────────────────
-
 export interface StudyOverview {
   summary: string
   main_idea: string
@@ -9,6 +7,7 @@ export interface StudyOverview {
   setting: string
   purpose: string
   literary_genre: string
+  literary_structure: string
   themes: string[]
   teaching_opportunities: string[]
 }
@@ -21,6 +20,8 @@ export interface ScriptureVerse {
 export interface StudyScripture {
   esv: string
   niv: string
+  nasb: string
+  kjv: string
   key_verse: string
   verse_by_verse: ScriptureVerse[]
 }
@@ -29,8 +30,11 @@ export interface LanguageWord {
   word: string
   transliteration: string
   strongs: string
+  pos: string
+  parsing: string
   definition: string
   usage: string
+  cognates: string
   preaching_note: string
 }
 
@@ -44,6 +48,8 @@ export interface StudyHistory {
   blind_spots: string
   jewish_background: string
   greco_roman: string
+  marriage_family: string
+  intertestamental: string
 }
 
 export interface ArchaeologyItem {
@@ -63,8 +69,11 @@ export interface StudyTheology {
   humanity: string
   kingdom: string
   covenant: string
+  church: string
+  eschatology: string
   biblical_theology: string
   systematic_connections: string
+  practical_theology: string
   doctrinal_issues: string[]
 }
 
@@ -73,8 +82,9 @@ export interface StudyCrossRefs {
   prophetic: string[]
   typological: string[]
   thematic: string[]
+  parallel_passages: string[]
   ot_backdrop: string
-  nt_connection: string
+  nt_development: string
 }
 
 export interface StudyChrist {
@@ -88,13 +98,38 @@ export interface StudyChrist {
 }
 
 export interface StudyCommentary {
-  spurgeon: string
   matthew_henry: string
+  spurgeon: string
   calvin: string
+  augustine: string
+  luther: string
+  modern_reformed: string
   modern_evangelical: string
   areas_of_agreement: string
   areas_of_debate: string
   best_insight: string
+}
+
+export interface ChurchFather {
+  father: string
+  dates: string
+  quote: string
+  context: string
+}
+
+export interface Quote {
+  author: string
+  source: string
+  quote: string
+  relevance: string
+}
+
+export interface Book {
+  title: string
+  author: string
+  type: string
+  description: string
+  level: string
 }
 
 export interface Illustration {
@@ -108,6 +143,7 @@ export interface NewsItem {
   type: string
   headline: string
   source: string
+  date: string
   relevance: string
   summary: string
 }
@@ -142,9 +178,21 @@ export interface SmallGroupQuestion {
 
 export interface StudySmallGroup {
   icebreaker: string
+  context_setter: string
   questions: SmallGroupQuestion[]
   activity: string
+  deeper_study: string[]
   takeaway: string
+}
+
+export interface StudyYouth {
+  big_truth: string
+  cultural_hook: string
+  game: string
+  object_lesson: { object: string; lesson: string }
+  discussion_questions: string[]
+  challenge: string
+  memory_verse: string
 }
 
 export interface StudyChildren {
@@ -154,6 +202,7 @@ export interface StudyChildren {
   object_lesson: { object: string; lesson: string }
   craft_idea: string
   activity: string
+  snack_idea: string
   discussion_questions: string[]
   parent_connection: string
 }
@@ -169,22 +218,23 @@ export interface StudyData {
   crossrefs: StudyCrossRefs
   christ: StudyChrist
   commentary: StudyCommentary
+  church_fathers: ChurchFather[]
+  quotes: Quote[]
+  books: Book[]
   illustrations: Illustration[]
   news: NewsItem[]
   outline: StudyOutline
   manuscript: StudyManuscript
   smallgroup: StudySmallGroup
+  youth: StudyYouth
   children: StudyChildren
 }
-
-// ─── DATABASE TYPES ───────────────────────────────────────────
 
 export interface Profile {
   id: string
   email: string
   full_name: string | null
-  plan: 'free' | 'pro'
-  study_count: number
+  plan: 'free' | 'church' | 'pro'
   created_at: string
   updated_at: string
 }
@@ -205,6 +255,5 @@ export interface Usage {
   study_count: number
 }
 
-// ─── FREE TIER ────────────────────────────────────────────────
-
-export const FREE_TIER_LIMIT = 5 // studies per month
+export const FREE_TIER_LIMIT = 5
+export const CHURCH_TIER_LIMIT = 50
