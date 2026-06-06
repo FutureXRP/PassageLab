@@ -7,27 +7,46 @@ const anthropic = new Anthropic({
 })
 
 const MODEL = 'claude-sonnet-4-6'
-const MAX_TOKENS = 8000
+const MAX_TOKENS = 16000
 
 function extractJSON(raw: string): unknown {
-  const match = raw.match(/\{[\s\S]*\}/)
+  const cleaned = raw
+    .replace(/```json/g, '')
+    .replace(/```/g, '')
+    .trim()
+
+  const match = cleaned.match(/\{[\s\S]*\}/)
   if (!match) throw new Error('No JSON object found in response')
+
+  const str = match[0]
+
   try {
-    return JSON.parse(match[0])
+    return JSON.parse(str)
   } catch {
-    const str = match[0]
-    let depth = 0, end = 0
+    // Find the largest valid JSON object by tracking braces
+    let depth = 0
+    let end = 0
+    let inString = false
+    let escape = false
+
     for (let i = 0; i < str.length; i++) {
-      if (str[i] === '{') depth++
-      if (str[i] === '}') {
+      const ch = str[i]
+      if (escape) { escape = false; continue }
+      if (ch === '\\' && inString) { escape = true; continue }
+      if (ch === '"') { inString = !inString; continue }
+      if (inString) continue
+      if (ch === '{') depth++
+      if (ch === '}') {
         depth--
         if (depth === 0) { end = i; break }
       }
     }
+
+    const candidate = str.slice(0, end + 1)
     try {
-      return JSON.parse(str.slice(0, end + 1))
-    } catch {
-      throw new Error('Could not parse JSON from response')
+      return JSON.parse(candidate)
+    } catch (e2) {
+      throw new Error(`Could not parse JSON from response: ${String(e2).slice(0, 100)}`)
     }
   }
 }
@@ -48,10 +67,8 @@ async function callClaude(prompt: string): Promise<unknown> {
 }
 
 export async function generateStudy(passage: string): Promise<StudyData> {
-  const [part1, part2] = await Promise.all([
-    callClaude(PROMPT_PART_1(passage)),
-    callClaude(PROMPT_PART_2(passage)),
-  ])
+  const part1 = await callClaude(PROMPT_PART_1(passage))
+  const part2 = await callClaude(PROMPT_PART_2(passage))
 
   return {
     ...(part1 as object),
