@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk'
-import { PROMPT_PART_1, PROMPT_PART_2 } from './prompts'
+import { buildPrompt, getTabsForRoles, Role } from './prompts'
 import type { StudyData } from '@/types'
 
 const anthropic = new Anthropic({
@@ -23,7 +23,6 @@ function extractJSON(raw: string): unknown {
   try {
     return JSON.parse(str)
   } catch {
-    // Find the largest valid JSON object by tracking braces
     let depth = 0
     let end = 0
     let inString = false
@@ -42,16 +41,17 @@ function extractJSON(raw: string): unknown {
       }
     }
 
-    const candidate = str.slice(0, end + 1)
     try {
-      return JSON.parse(candidate)
+      return JSON.parse(str.slice(0, end + 1))
     } catch (e2) {
-      throw new Error(`Could not parse JSON from response: ${String(e2).slice(0, 100)}`)
+      throw new Error(`Could not parse JSON: ${String(e2).slice(0, 100)}`)
     }
   }
 }
 
 async function callClaude(prompt: string): Promise<unknown> {
+  if (!prompt) return {}
+
   const message = await anthropic.messages.create({
     model: MODEL,
     max_tokens: MAX_TOKENS,
@@ -66,12 +66,22 @@ async function callClaude(prompt: string): Promise<unknown> {
   return extractJSON(text)
 }
 
-export async function generateStudy(passage: string): Promise<StudyData> {
-  const part1 = await callClaude(PROMPT_PART_1(passage))
-  const part2 = await callClaude(PROMPT_PART_2(passage))
+export async function generateStudy(
+  passage: string,
+  roles: Role[]
+): Promise<StudyData> {
+  const tabs = getTabsForRoles(roles)
+
+  const prompt1 = buildPrompt(passage, tabs, 1)
+  const prompt2 = buildPrompt(passage, tabs, 2)
+
+  const part1 = await callClaude(prompt1)
+  const part2 = prompt2 ? await callClaude(prompt2) : {}
 
   return {
     ...(part1 as object),
     ...(part2 as object),
-  } as StudyData
+    roles,
+    tabs,
+  } as unknown as StudyData
 }
