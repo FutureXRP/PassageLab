@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useParams, useSearchParams } from 'next/navigation'
 
 const ALL_TABS = [
@@ -26,32 +26,15 @@ const ALL_TABS = [
 ]
 
 const ROLE_LABELS: Record<string, string> = {
-  pastor: 'Pastor',
-  theologian: 'Theologian',
-  teacher: 'Teacher',
-  smallgroup: 'Small Group',
-  youth: 'Youth Worker',
-  children: "Children's Worker",
+  pastor: 'Pastor', theologian: 'Theologian', teacher: 'Teacher',
+  smallgroup: 'Small Group', youth: 'Youth Worker', children: "Children's Worker",
 }
 
-const ROLE_PROGRESS: Record<string, string[]> = {
-  pastor:     ['Analyzing the passage…','Studying original languages…','Researching historical context…','Gathering archaeological evidence…','Synthesizing commentary…','Crafting illustrations…','Building sermon outline…','Writing manuscript…','Finalizing your dossier…'],
-  theologian: ['Analyzing the passage…','Studying original languages…','Researching historical context…','Gathering archaeological evidence…','Building theological framework…','Assembling cross-references…','Synthesizing commentary…','Gathering church fathers…','Curating book recommendations…','Reviewing news & research…','Finalizing your dossier…'],
-  teacher:    ['Analyzing the passage…','Researching historical context…','Synthesizing commentary…','Crafting illustrations…','Building lesson outline…','Preparing discussion questions…','Finalizing your dossier…'],
-  smallgroup: ['Analyzing the passage…','Researching historical context…','Crafting illustrations…','Preparing discussion questions…','Building group activity…','Finalizing your dossier…'],
-  youth:      ['Analyzing the passage…','Researching historical context…','Finding cultural connections…','Crafting illustrations…','Building youth content…','Finalizing your dossier…'],
-  children:   ['Analyzing the passage…','Crafting the story…','Building object lesson…','Creating craft & activity ideas…','Writing parent connection…','Finalizing your dossier…'],
-}
+type TabState = 'pending' | 'generating' | 'done' | 'error'
 
-function getProgressSteps(roles: string[]): string[] {
-  const seen = new Set<string>()
-  const steps: string[] = []
-  roles.forEach(role => {
-    ;(ROLE_PROGRESS[role] || []).forEach(step => {
-      if (!seen.has(step)) { seen.add(step); steps.push(step) }
-    })
-  })
-  return steps
+interface TabData {
+  state: TabState
+  data: any
 }
 
 export default function StudyPage() {
@@ -60,53 +43,107 @@ export default function StudyPage() {
   const passage = decodeURIComponent(params.passage as string)
   const rolesParam = searchParams.get('roles') || 'pastor'
   const roles = rolesParam.split(',').filter(Boolean)
-  const PROGRESS = getProgressSteps(roles)
 
-  const [data, setData] = useState<any>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [activeTab, setActiveTab] = useState('overview')
+  const [visibleTabs, setVisibleTabs] = useState<string[]>([])
+  const [tabStates, setTabStates] = useState<Record<string, TabData>>({})
+  const [bibleText, setBibleText] = useState<any>(null)
   const [bibleVersion, setBibleVersion] = useState('kjv')
-  const [progressStep, setProgressStep] = useState(0)
+  const [activeTab, setActiveTab] = useState('')
+  const [overviewData, setOverviewData] = useState<any>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+  const hasStarted = useRef(false)
 
   useEffect(() => {
-    let interval: NodeJS.Timeout
-    async function fetchStudy() {
-      interval = setInterval(() => {
-        setProgressStep(prev => prev < PROGRESS.length - 1 ? prev + 1 : prev)
-      }, 5000)
+    if (hasStarted.current) return
+    hasStarted.current = true
+
+    async function stream() {
       try {
         const res = await fetch('/api/study', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ passage, roles }),
         })
-        const json = await res.json()
-        if (!res.ok) throw new Error(json.error || 'Failed to generate study')
-        setData(json.study)
+
+        if (!res.ok) throw new Error('Failed to start study generation')
+        if (!res.body) throw new Error('No response body')
+
+        const reader = res.body.getReader()
+        const decoder = new TextDecoder()
+        let buffer = ''
+
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+          buffer += decoder.decode(value, { stream: true })
+          const lines = buffer.split('\n')
+          buffer = lines.pop() || ''
+
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue
+            try {
+              const event = JSON.parse(line.slice(6))
+
+              if (event.type === 'init') {
+                setVisibleTabs(event.tabs)
+                setLoading(false)
+                const initial: Record<string, TabData> = {}
+                event.tabs.forEach((t: string) => { initial[t] = { state: 'pending', data: null } })
+                setTabStates(initial)
+                setActiveTab(event.tabs[0] || 'overview')
+              }
+
+              if (event.type === 'bible') {
+                setBibleText(event.data)
+              }
+
+              if (event.type === 'tab_start') {
+                setTabStates(prev => ({
+                  ...prev,
+                  [event.tabId]: { ...prev[event.tabId], state: 'generating' }
+                }))
+              }
+
+              if (event.type === 'tab_done') {
+                setTabStates(prev => ({
+                  ...prev,
+                  [event.tabId]: { state: 'done', data: event.data }
+                }))
+                if (event.tabId === 'overview') {
+                  setOverviewData(event.data)
+                }
+              }
+
+              if (event.type === 'error') {
+                setError(event.message)
+              }
+
+            } catch {}
+          }
+        }
       } catch (e: any) {
         setError(e.message)
-      } finally {
-        clearInterval(interval)
         setLoading(false)
       }
     }
-    fetchStudy()
-    return () => clearInterval(interval)
+
+    stream()
   }, [passage])
 
-  const visibleTabs = data?.tabs
-    ? ALL_TABS.filter(t => (data.tabs as string[]).includes(t.id))
-    : ALL_TABS
+  const allDone = visibleTabs.length > 0 && visibleTabs.every(t => tabStates[t]?.state === 'done')
+  const doneCount = visibleTabs.filter(t => tabStates[t]?.state === 'done').length
 
   return (
     <div style={{ minHeight:'100vh', background:'#0D1117', color:'#F5F0E8', fontFamily:"'DM Sans',system-ui,sans-serif" }}>
       <style>{`
         @keyframes spin { to { transform:rotate(360deg); } }
-        @keyframes fadeIn { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:translateY(0); } }
+        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+        @keyframes fadeIn { from{opacity:0;transform:translateY(4px)} to{opacity:1;transform:translateY(0)} }
         .tab-bar::-webkit-scrollbar { display:none; }
       `}</style>
 
+      {/* NAV */}
       <nav style={{ position:'sticky', top:0, zIndex:50, display:'flex', alignItems:'center', justifyContent:'space-between', padding:'0 32px', height:56, background:'rgba(13,17,23,0.97)', backdropFilter:'blur(12px)', borderBottom:'1px solid rgba(255,255,255,0.08)' }}>
         <a href="/" style={{ fontFamily:"'Playfair Display',serif", fontSize:18, fontWeight:700, color:'#F5F0E8', textDecoration:'none' }}>Passage<span style={{ color:'#C9973A' }}>Lab</span></a>
         <div style={{ display:'flex', alignItems:'center', gap:12 }}>
@@ -117,73 +154,129 @@ export default function StudyPage() {
             ))}
           </div>
         </div>
-        <a href="/" style={{ fontSize:13, color:'#8892A4', textDecoration:'none' }}>← New study</a>
+        <div style={{ display:'flex', alignItems:'center', gap:12 }}>
+          {!allDone && visibleTabs.length > 0 && (
+            <div style={{ fontSize:12, color:'#8892A4', fontFamily:"'DM Mono',monospace" }}>
+              {doneCount}/{visibleTabs.length} tabs ready
+            </div>
+          )}
+          <a href="/" style={{ fontSize:13, color:'#8892A4', textDecoration:'none' }}>← New study</a>
+        </div>
       </nav>
 
+      {/* INITIAL LOADING */}
       {loading && (
-        <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', minHeight:'85vh', gap:24, padding:'0 24px' }}>
+        <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', minHeight:'85vh', gap:20 }}>
           <div style={{ width:40, height:40, border:'2.5px solid rgba(255,255,255,0.08)', borderTopColor:'#C9973A', borderRadius:'50%', animation:'spin 0.9s linear infinite' }} />
-          <div style={{ textAlign:'center' }}>
-            <div style={{ fontSize:16, fontWeight:500, color:'#F5F0E8', marginBottom:8 }}>Building your research dossier</div>
-            <div key={progressStep} style={{ fontSize:14, color:'#C9973A', marginBottom:24, animation:'fadeIn 0.4s ease', minHeight:22 }}>{PROGRESS[progressStep]}</div>
-            <div style={{ display:'flex', gap:4, justifyContent:'center' }}>
-              {PROGRESS.map((_,i) => (
-                <div key={i} style={{ width:i===progressStep?20:6, height:4, borderRadius:2, background:i===progressStep?'#C9973A':'rgba(255,255,255,0.1)', transition:'all 0.3s ease' }} />
-              ))}
-            </div>
-          </div>
-          <div style={{ fontSize:12, color:'#8892A4', textAlign:'center', maxWidth:400, lineHeight:1.7 }}>
-            Tailored for: {roles.map(r => ROLE_LABELS[r]).filter(Boolean).join(' + ')}
-          </div>
+          <div style={{ fontSize:16, fontWeight:500, color:'#F5F0E8' }}>Starting your research dossier…</div>
+          <div style={{ fontSize:13, color:'#8892A4' }}>Tailored for: {roles.map(r => ROLE_LABELS[r]).filter(Boolean).join(' + ')}</div>
         </div>
       )}
 
-      {error && !loading && (
+      {/* ERROR */}
+      {error && (
         <div style={{ maxWidth:600, margin:'80px auto', padding:'0 24px' }}>
           <div style={{ background:'rgba(139,26,26,0.15)', border:'1px solid rgba(139,26,26,0.3)', borderRadius:12, padding:'24px 28px' }}>
             <div style={{ fontSize:15, fontWeight:600, color:'#F5F0E8', marginBottom:8 }}>Something went wrong</div>
             <div style={{ fontSize:13, color:'#8892A4', marginBottom:16 }}>{error}</div>
-            <a href="/" style={{ fontSize:13, color:'#C9973A', textDecoration:'none' }}>← Try a different passage</a>
+            <a href="/" style={{ fontSize:13, color:'#C9973A', textDecoration:'none' }}>← Try again</a>
           </div>
         </div>
       )}
 
-      {data && !loading && (
+      {/* CONTENT */}
+      {!loading && !error && visibleTabs.length > 0 && (
         <div style={{ maxWidth:880, margin:'0 auto', padding:'32px 24px 80px' }}>
+
+          {/* Header */}
           <div style={{ marginBottom:28 }}>
-            <div style={{ fontFamily:"'Playfair Display',serif", fontSize:30, fontWeight:700, color:'#F5F0E8', marginBottom:6 }}>{data.passage}</div>
-            {data.overview?.author && (
+            <div style={{ fontFamily:"'Playfair Display',serif", fontSize:30, fontWeight:700, color:'#F5F0E8', marginBottom:6 }}>{passage}</div>
+            {overviewData?.overview?.author && (
               <div style={{ fontSize:13, color:'#8892A4', marginBottom:20, fontFamily:"'DM Mono',monospace" }}>
-                {data.overview.author} · {data.overview.audience} · {data.overview.date}
+                {overviewData.overview.author} · {overviewData.overview.date}
               </div>
             )}
-            {data.overview?.main_idea && (
-              <div style={{ background:'linear-gradient(135deg,rgba(201,151,58,0.1),rgba(201,151,58,0.04))', border:'1px solid rgba(201,151,58,0.2)', borderRadius:12, padding:'18px 22px' }}>
+            {overviewData?.overview?.main_idea ? (
+              <div style={{ background:'linear-gradient(135deg,rgba(201,151,58,0.1),rgba(201,151,58,0.04))', border:'1px solid rgba(201,151,58,0.2)', borderRadius:12, padding:'18px 22px', animation:'fadeIn 0.5s ease' }}>
                 <div style={{ fontSize:10, fontFamily:"'DM Mono',monospace", color:'#C9973A', textTransform:'uppercase', letterSpacing:'1.5px', marginBottom:8 }}>Big Idea</div>
-                <div style={{ fontFamily:"'Playfair Display',serif", fontSize:18, color:'#F5F0E8', fontStyle:'italic', lineHeight:1.65 }}>{data.overview.main_idea}</div>
+                <div style={{ fontFamily:"'Playfair Display',serif", fontSize:18, color:'#F5F0E8', fontStyle:'italic', lineHeight:1.65 }}>{overviewData.overview.main_idea}</div>
+              </div>
+            ) : (
+              <div style={{ background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.08)', borderRadius:12, padding:'18px 22px', animation:'pulse 1.5s ease infinite' }}>
+                <div style={{ fontSize:10, fontFamily:"'DM Mono',monospace", color:'#C9973A', textTransform:'uppercase', letterSpacing:'1.5px', marginBottom:8 }}>Big Idea</div>
+                <div style={{ height:20, background:'rgba(255,255,255,0.06)', borderRadius:4, width:'70%' }} />
               </div>
             )}
           </div>
 
+          {/* TABS */}
           <div className="tab-bar" style={{ overflowX:'auto', borderBottom:'1px solid rgba(255,255,255,0.08)', marginBottom:32, scrollbarWidth:'none' }}>
             <div style={{ display:'flex', whiteSpace:'nowrap' }}>
-              {visibleTabs.map(t => (
-                <button key={t.id} onClick={() => setActiveTab(t.id)} style={{
-                  padding:'10px 14px', fontSize:12,
-                  fontWeight:activeTab===t.id?600:400,
-                  color:activeTab===t.id?'#C9973A':'#8892A4',
-                  background:'none', border:'none',
-                  borderBottom:`2px solid ${activeTab===t.id?'#C9973A':'transparent'}`,
-                  marginBottom:-1, cursor:'pointer',
-                  fontFamily:"'DM Sans',sans-serif", whiteSpace:'nowrap',
-                }}>{t.label}</button>
-              ))}
+              {visibleTabs.map(tabId => {
+                const tabInfo = ALL_TABS.find(t => t.id === tabId)
+                const state = tabStates[tabId]?.state || 'pending'
+                const isActive = activeTab === tabId
+                const isDone = state === 'done'
+                const isGenerating = state === 'generating'
+
+                return (
+                  <button
+                    key={tabId}
+                    onClick={() => isDone && setActiveTab(tabId)}
+                    disabled={!isDone}
+                    style={{
+                      padding:'10px 14px', fontSize:12,
+                      fontWeight: isActive ? 600 : 400,
+                      color: isActive ? '#C9973A' : isDone ? '#8892A4' : 'rgba(136,146,164,0.35)',
+                      background:'none', border:'none',
+                      borderBottom:`2px solid ${isActive ? '#C9973A' : 'transparent'}`,
+                      marginBottom:-1, cursor: isDone ? 'pointer' : 'not-allowed',
+                      fontFamily:"'DM Sans',sans-serif", whiteSpace:'nowrap',
+                      display:'flex', alignItems:'center', gap:6,
+                      transition:'color 0.2s',
+                    }}
+                  >
+                    {tabInfo?.label}
+                    {isGenerating && (
+                      <span style={{ width:6, height:6, borderRadius:'50%', background:'#C9973A', display:'inline-block', animation:'pulse 0.8s ease infinite' }} />
+                    )}
+                    {isDone && !isActive && (
+                      <span style={{ width:5, height:5, borderRadius:'50%', background:'rgba(29,158,117,0.8)', display:'inline-block' }} />
+                    )}
+                  </button>
+                )
+              })}
             </div>
           </div>
 
-          <TabContent tab={activeTab} data={data} bibleVersion={bibleVersion} setBibleVersion={setBibleVersion} />
+          {/* TAB CONTENT */}
+          {activeTab && tabStates[activeTab] && (
+            <div style={{ animation:'fadeIn 0.3s ease' }}>
+              {tabStates[activeTab].state === 'done' ? (
+                <TabContent
+                  tab={activeTab}
+                  data={tabStates[activeTab].data}
+                  bibleText={bibleText}
+                  bibleVersion={bibleVersion}
+                  setBibleVersion={setBibleVersion}
+                />
+              ) : (
+                <TabSkeleton />
+              )}
+            </div>
+          )}
         </div>
       )}
+    </div>
+  )
+}
+
+function TabSkeleton() {
+  return (
+    <div style={{ animation:'pulse 1.5s ease infinite' }}>
+      {[100, 70, 85, 60, 90].map((w, i) => (
+        <div key={i} style={{ height:14, background:'rgba(255,255,255,0.06)', borderRadius:4, width:`${w}%`, marginBottom:14 }} />
+      ))}
     </div>
   )
 }
@@ -237,7 +330,8 @@ function PreachNote({ text }: { text?: string }) {
   )
 }
 
-function TabContent({ tab, data, bibleVersion, setBibleVersion }: any) {
+function TabContent({ tab, data, bibleText, bibleVersion, setBibleVersion }: any) {
+  if (!data) return <TabSkeleton />
 
   if (tab === 'overview') {
     const o = data.overview || {}
@@ -250,15 +344,11 @@ function TabContent({ tab, data, bibleVersion, setBibleVersion }: any) {
         <Sec title="Historical Setting"><Body>{o.setting}</Body></Sec>
         <Sec title="Key Themes">
           <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(130px,1fr))', gap:8, marginTop:8 }}>
-            {(o.themes||[]).map((t:string,i:number) => (
-              <div key={i} style={{ background:'rgba(255,255,255,0.04)', border:'0.5px solid rgba(255,255,255,0.08)', borderRadius:8, padding:'10px 14px', fontSize:13, fontWeight:500, color:'#F5F0E8' }}>{t}</div>
-            ))}
+            {(o.themes||[]).map((t:string,i:number) => <div key={i} style={{ background:'rgba(255,255,255,0.04)', border:'0.5px solid rgba(255,255,255,0.08)', borderRadius:8, padding:'10px 14px', fontSize:13, fontWeight:500, color:'#F5F0E8' }}>{t}</div>)}
           </div>
         </Sec>
         <Sec title="Teaching Opportunities">
-          {(o.teaching_opportunities||[]).map((t:string,i:number) => (
-            <div key={i} style={{ fontSize:14, color:'#F5F0E8', padding:'5px 0', lineHeight:1.7 }}>→ {t}</div>
-          ))}
+          {(o.teaching_opportunities||[]).map((t:string,i:number) => <div key={i} style={{ fontSize:14, color:'#F5F0E8', padding:'5px 0', lineHeight:1.7 }}>→ {t}</div>)}
         </Sec>
       </div>
     )
@@ -266,30 +356,20 @@ function TabContent({ tab, data, bibleVersion, setBibleVersion }: any) {
 
   if (tab === 'scripture') {
     const sc = data.scripture || {}
-    const bt = data.bibleText || {}
+    const bt = bibleText || {}
     const versions = ['kjv','web','asv','ylt']
     const labels: Record<string,string> = { kjv:'KJV', web:'WEB', asv:'ASV', ylt:'YLT' }
     return (
       <div>
         <div style={{ display:'flex', gap:8, marginBottom:20, flexWrap:'wrap' }}>
           {versions.map(v => (
-            <button key={v} onClick={() => setBibleVersion(v)} style={{
-              padding:'6px 18px', borderRadius:6, fontSize:12, fontWeight:600, cursor:'pointer',
-              fontFamily:"'DM Sans',sans-serif",
-              background:bibleVersion===v?'#C9973A':'none',
-              color:bibleVersion===v?'#0D1117':'#8892A4',
-              border:bibleVersion===v?'none':'1px solid rgba(255,255,255,0.1)',
-            }}>{labels[v]}</button>
+            <button key={v} onClick={() => setBibleVersion(v)} style={{ padding:'6px 18px', borderRadius:6, fontSize:12, fontWeight:600, cursor:'pointer', fontFamily:"'DM Sans',sans-serif", background:bibleVersion===v?'#C9973A':'none', color:bibleVersion===v?'#0D1117':'#8892A4', border:bibleVersion===v?'none':'1px solid rgba(255,255,255,0.1)' }}>{labels[v]}</button>
           ))}
         </div>
         {bt[bibleVersion] && (
-          <div style={{ fontFamily:'Georgia,serif', fontSize:15, lineHeight:2.2, color:'#F5F0E8', background:'rgba(255,255,255,0.03)', border:'0.5px solid rgba(255,255,255,0.08)', borderRadius:12, padding:'24px 28px', marginBottom:20, whiteSpace:'pre-wrap' }}>
-            {bt[bibleVersion]}
-          </div>
+          <div style={{ fontFamily:'Georgia,serif', fontSize:15, lineHeight:2.2, color:'#F5F0E8', background:'rgba(255,255,255,0.03)', border:'0.5px solid rgba(255,255,255,0.08)', borderRadius:12, padding:'24px 28px', marginBottom:20, whiteSpace:'pre-wrap' }}>{bt[bibleVersion]}</div>
         )}
-        <div style={{ fontSize:11, color:'rgba(136,146,164,0.6)', marginBottom:24, fontStyle:'italic' }}>
-          KJV, WEB, ASV, and YLT are public domain translations.
-        </div>
+        <div style={{ fontSize:11, color:'rgba(136,146,164,0.6)', marginBottom:24, fontStyle:'italic' }}>KJV, WEB, ASV, and YLT are public domain translations.</div>
         <Highlight label="Key Verse" text={sc.key_verse} />
         {(sc.verse_by_verse||[]).length > 0 && (
           <Sec title="Verse-by-Verse Exegetical Notes">
@@ -380,9 +460,7 @@ function TabContent({ tab, data, bibleVersion, setBibleVersion }: any) {
         <InfoBlock label="Practical Theology" text={t.practical_theology} />
         {(t.doctrinal_issues||[]).length > 0 && (
           <Sec title="Doctrinal Issues">
-            {t.doctrinal_issues.map((d:string,i:number) => (
-              <div key={i} style={{ fontSize:14, color:'#F5F0E8', padding:'6px 0', lineHeight:1.7 }}>→ {d}</div>
-            ))}
+            {t.doctrinal_issues.map((d:string,i:number) => <div key={i} style={{ fontSize:14, color:'#F5F0E8', padding:'6px 0', lineHeight:1.7 }}>→ {d}</div>)}
           </Sec>
         )}
       </div>
@@ -474,16 +552,17 @@ function TabContent({ tab, data, bibleVersion, setBibleVersion }: any) {
 
   if (tab === 'books') {
     const lc: Record<string,string> = { Beginner:'#1D9E75', Intermediate:'#C9973A', Advanced:'#B22222', Scholar:'#534AB7' }
+    const tag = process.env.NEXT_PUBLIC_AMAZON_TAG || 'passagelab-20'
     return (
       <div>
-        <div style={{ fontSize:13, color:'#8892A4', marginBottom:20, lineHeight:1.7 }}>Curated resources for deeper study of this passage.</div>
+        <div style={{ fontSize:13, color:'#8892A4', marginBottom:20, lineHeight:1.7 }}>Curated resources for deeper study. Links open Amazon search.</div>
         {(data.books||[]).map((b:any,i:number) => (
           <Card key={i} style={{ display:'flex', gap:16, alignItems:'flex-start' }}>
             <div style={{ width:4, flexShrink:0, alignSelf:'stretch', borderRadius:2, background:lc[b.level]||'#C9973A' }} />
             <div style={{ flex:1 }}>
               <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:10, marginBottom:6, flexWrap:'wrap' }}>
                 <div>
-                  <div style={{ fontFamily:"'Playfair Display',serif", fontSize:15, fontWeight:600, color:'#F5F0E8', marginBottom:2 }}>{b.title}</div>
+                  <a href={`https://www.amazon.com/s?k=${encodeURIComponent(b.title+' '+b.author)}&tag=${tag}`} target="_blank" rel="noopener noreferrer" style={{ fontFamily:"'Playfair Display',serif", fontSize:15, fontWeight:600, color:'#C9973A', textDecoration:'none', marginBottom:2, display:'block' }}>{b.title} ↗</a>
                   <div style={{ fontSize:12, color:'#8892A4' }}>{b.author}</div>
                 </div>
                 <div style={{ display:'flex', gap:6, flexShrink:0 }}>
@@ -522,10 +601,9 @@ function TabContent({ tab, data, bibleVersion, setBibleVersion }: any) {
   if (tab === 'news') {
     return (
       <div>
-        <div style={{ fontSize:13, color:'#8892A4', marginBottom:20, lineHeight:1.7 }}>Recent scholarship, archaeological findings, and cultural developments relevant to this passage.</div>
         {(data.news||[]).map((n:any,i:number) => (
           <Card key={i}>
-            <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:10, flexWrap:'wrap' }}>
+            <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:10 }}>
               <span style={{ fontSize:10, fontWeight:600, color:'#C9973A', fontFamily:"'DM Mono',monospace", textTransform:'uppercase', letterSpacing:'1px', background:'rgba(201,151,58,0.1)', borderRadius:4, padding:'3px 10px' }}>{n.type}</span>
               {n.date && <span style={{ fontSize:11, color:'#8892A4', fontFamily:"'DM Mono',monospace" }}>{n.date}</span>}
             </div>
@@ -551,21 +629,9 @@ function TabContent({ tab, data, bibleVersion, setBibleVersion }: any) {
             <div style={{ fontFamily:"'Playfair Display',serif", fontSize:28, fontWeight:700, color:'rgba(201,151,58,0.4)', minWidth:28, lineHeight:1.2 }}>{i+1}</div>
             <div style={{ flex:1 }}>
               <div style={{ fontSize:15, fontWeight:600, color:'#F5F0E8', marginBottom:10 }}>{p.point}</div>
-              {(p.subpoints||[]).map((sp:string,j:number) => (
-                <div key={j} style={{ fontSize:13, color:'#8892A4', lineHeight:1.75, paddingLeft:14, marginBottom:5 }}>· {sp}</div>
-              ))}
-              {p.illustration && (
-                <div style={{ marginTop:12, background:'rgba(201,151,58,0.05)', borderRadius:8, padding:'10px 14px' }}>
-                  <div style={{ fontSize:10, fontWeight:600, fontFamily:"'DM Mono',monospace", color:'#C9973A', textTransform:'uppercase', letterSpacing:'1px', marginBottom:5 }}>Illustration</div>
-                  <Body>{p.illustration}</Body>
-                </div>
-              )}
-              {p.application && (
-                <div style={{ marginTop:10 }}>
-                  <div style={{ fontSize:10, fontWeight:600, fontFamily:"'DM Mono',monospace", color:'#C9973A', textTransform:'uppercase', letterSpacing:'1px', marginBottom:5 }}>Application</div>
-                  <Body>{p.application}</Body>
-                </div>
-              )}
+              {(p.subpoints||[]).map((sp:string,j:number) => <div key={j} style={{ fontSize:13, color:'#8892A4', lineHeight:1.75, paddingLeft:14, marginBottom:5 }}>· {sp}</div>)}
+              {p.illustration && <div style={{ marginTop:12, background:'rgba(201,151,58,0.05)', borderRadius:8, padding:'10px 14px' }}><div style={{ fontSize:10, fontWeight:600, fontFamily:"'DM Mono',monospace", color:'#C9973A', textTransform:'uppercase', letterSpacing:'1px', marginBottom:5 }}>Illustration</div><Body>{p.illustration}</Body></div>}
+              {p.application && <div style={{ marginTop:10 }}><div style={{ fontSize:10, fontWeight:600, fontFamily:"'DM Mono',monospace", color:'#C9973A', textTransform:'uppercase', letterSpacing:'1px', marginBottom:5 }}>Application</div><Body>{p.application}</Body></div>}
             </div>
           </div>
         ))}
@@ -574,9 +640,7 @@ function TabContent({ tab, data, bibleVersion, setBibleVersion }: any) {
           <InfoBlock label="Invitation" text={ol.invitation} />
         </div>
         <Sec title="Alternative Structures">
-          {(ol.alternative_structures||[]).map((a:string,i:number) => (
-            <div key={i} style={{ fontSize:14, color:'#F5F0E8', padding:'7px 0', lineHeight:1.7, borderBottom:'0.5px solid rgba(255,255,255,0.05)' }}>→ {a}</div>
-          ))}
+          {(ol.alternative_structures||[]).map((a:string,i:number) => <div key={i} style={{ fontSize:14, color:'#F5F0E8', padding:'7px 0', lineHeight:1.7, borderBottom:'0.5px solid rgba(255,255,255,0.05)' }}>→ {a}</div>)}
         </Sec>
       </div>
     )
@@ -586,7 +650,7 @@ function TabContent({ tab, data, bibleVersion, setBibleVersion }: any) {
     const m = data.manuscript || {}
     return (
       <div>
-        {[['Introduction', m.intro], ['Body', m.body], ['Conclusion', m.conclusion]].map(([label, text]) => (
+        {[['Introduction',m.intro],['Body',m.body],['Conclusion',m.conclusion]].map(([label,text]) => (
           <div key={label as string} style={{ marginBottom:32 }}>
             <div style={{ fontSize:10, fontWeight:600, fontFamily:"'DM Mono',monospace", color:'#C9973A', textTransform:'uppercase', letterSpacing:'1.2px', marginBottom:14 }}>{label}</div>
             <div style={{ fontFamily:'Georgia,serif', fontSize:15, lineHeight:2.2, color:'#F5F0E8', background:'rgba(255,255,255,0.03)', border:'0.5px solid rgba(255,255,255,0.08)', borderRadius:12, padding:'24px 28px' }}>{text}</div>
@@ -611,13 +675,7 @@ function TabContent({ tab, data, bibleVersion, setBibleVersion }: any) {
           ))}
         </Sec>
         <InfoBlock label="Group Activity" text={sg.activity} />
-        {(sg.deeper_study||[]).length > 0 && (
-          <Sec title="For Deeper Study">
-            {sg.deeper_study.map((d:string,i:number) => (
-              <div key={i} style={{ fontSize:14, color:'#F5F0E8', padding:'5px 0', lineHeight:1.7 }}>→ {d}</div>
-            ))}
-          </Sec>
-        )}
+        {(sg.deeper_study||[]).length > 0 && <Sec title="For Deeper Study">{sg.deeper_study.map((d:string,i:number) => <div key={i} style={{ fontSize:14, color:'#F5F0E8', padding:'5px 0', lineHeight:1.7 }}>→ {d}</div>)}</Sec>}
         <Highlight label="Key Takeaway" text={sg.takeaway} />
       </div>
     )
@@ -630,25 +688,9 @@ function TabContent({ tab, data, bibleVersion, setBibleVersion }: any) {
         <Highlight label="The Big Truth" text={y.big_truth} />
         <InfoBlock label="Cultural Hook" text={y.cultural_hook} />
         <InfoBlock label="Memory Verse" text={y.memory_verse} />
-        {y.game && (
-          <Card>
-            <div style={{ fontSize:10, fontWeight:600, fontFamily:"'DM Mono',monospace", color:'#C9973A', textTransform:'uppercase', letterSpacing:'1px', marginBottom:8 }}>Opening Game</div>
-            <Body>{y.game}</Body>
-          </Card>
-        )}
-        {y.object_lesson && (
-          <Card>
-            <div style={{ fontFamily:"'Playfair Display',serif", fontSize:15, fontWeight:600, color:'#F5F0E8', marginBottom:8 }}>Object Lesson: {y.object_lesson.object}</div>
-            <Body>{y.object_lesson.lesson}</Body>
-          </Card>
-        )}
-        <Sec title="Discussion Questions">
-          {(y.discussion_questions||[]).map((q:string,i:number) => (
-            <div key={i} style={{ background:'rgba(255,255,255,0.03)', border:'0.5px solid rgba(255,255,255,0.08)', borderRadius:10, padding:'12px 16px', marginBottom:8 }}>
-              <Body>{q}</Body>
-            </div>
-          ))}
-        </Sec>
+        {y.game && <Card><div style={{ fontSize:10, fontWeight:600, fontFamily:"'DM Mono',monospace", color:'#C9973A', textTransform:'uppercase', letterSpacing:'1px', marginBottom:8 }}>Opening Game</div><Body>{y.game}</Body></Card>}
+        {y.object_lesson && <Card><div style={{ fontFamily:"'Playfair Display',serif", fontSize:15, fontWeight:600, color:'#F5F0E8', marginBottom:8 }}>Object Lesson: {y.object_lesson.object}</div><Body>{y.object_lesson.lesson}</Body></Card>}
+        <Sec title="Discussion Questions">{(y.discussion_questions||[]).map((q:string,i:number) => <div key={i} style={{ background:'rgba(255,255,255,0.03)', border:'0.5px solid rgba(255,255,255,0.08)', borderRadius:10, padding:'12px 16px', marginBottom:8 }}><Body>{q}</Body></div>)}</Sec>
         <InfoBlock label="Weekly Challenge" text={y.challenge} />
       </div>
     )
@@ -660,29 +702,12 @@ function TabContent({ tab, data, bibleVersion, setBibleVersion }: any) {
       <div>
         <Highlight label="The Big Truth (Ages 6–10)" text={ch.big_truth} />
         <InfoBlock label="Memory Verse" text={ch.memory_verse} />
-        {ch.story_retelling && (
-          <Sec title="Story Retelling">
-            <div style={{ fontFamily:'Georgia,serif', fontSize:15, lineHeight:2.1, color:'#F5F0E8', fontStyle:'italic' }}>{ch.story_retelling}</div>
-          </Sec>
-        )}
-        {ch.object_lesson && (
-          <Card>
-            <div style={{ fontFamily:"'Playfair Display',serif", fontSize:15, fontWeight:600, color:'#F5F0E8', marginBottom:8 }}>Object Lesson: {ch.object_lesson.object}</div>
-            <Body>{ch.object_lesson.lesson}</Body>
-          </Card>
-        )}
+        {ch.story_retelling && <Sec title="Story Retelling"><div style={{ fontFamily:'Georgia,serif', fontSize:15, lineHeight:2.1, color:'#F5F0E8', fontStyle:'italic' }}>{ch.story_retelling}</div></Sec>}
+        {ch.object_lesson && <Card><div style={{ fontFamily:"'Playfair Display',serif", fontSize:15, fontWeight:600, color:'#F5F0E8', marginBottom:8 }}>Object Lesson: {ch.object_lesson.object}</div><Body>{ch.object_lesson.lesson}</Body></Card>}
         <InfoBlock label="Craft Idea" text={ch.craft_idea} />
         <InfoBlock label="Activity / Game" text={ch.activity} />
         <InfoBlock label="Snack Idea" text={ch.snack_idea} />
-        {(ch.discussion_questions||[]).length > 0 && (
-          <Sec title="Discussion Questions">
-            {ch.discussion_questions.map((q:string,i:number) => (
-              <div key={i} style={{ background:'rgba(255,255,255,0.03)', border:'0.5px solid rgba(255,255,255,0.08)', borderRadius:10, padding:'12px 16px', marginBottom:8 }}>
-                <Body>{q}</Body>
-              </div>
-            ))}
-          </Sec>
-        )}
+        {(ch.discussion_questions||[]).length > 0 && <Sec title="Discussion Questions">{ch.discussion_questions.map((q:string,i:number) => <div key={i} style={{ background:'rgba(255,255,255,0.03)', border:'0.5px solid rgba(255,255,255,0.08)', borderRadius:10, padding:'12px 16px', marginBottom:8 }}><Body>{q}</Body></div>)}</Sec>}
         <Highlight label="Parent Connection" text={ch.parent_connection} />
       </div>
     )
