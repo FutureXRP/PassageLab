@@ -4,25 +4,25 @@ import { useState, useEffect } from 'react'
 import { useParams, useSearchParams } from 'next/navigation'
 
 const ALL_TABS = [
-  { id: 'overview',     label: 'Overview' },
-  { id: 'scripture',    label: 'Scripture' },
-  { id: 'language',     label: 'Language' },
-  { id: 'history',      label: 'Historical' },
-  { id: 'archaeology',  label: 'Archaeology' },
-  { id: 'theology',     label: 'Theology' },
-  { id: 'crossref',     label: 'Cross-refs' },
-  { id: 'christ',       label: 'Christ' },
-  { id: 'commentary',   label: 'Commentary' },
-  { id: 'fathers',      label: 'Church Fathers' },
-  { id: 'quotes',       label: 'Quotes' },
-  { id: 'books',        label: 'Book List' },
-  { id: 'illustrations',label: 'Illustrations' },
-  { id: 'news',         label: 'News & Research' },
-  { id: 'outline',      label: 'Outline' },
-  { id: 'manuscript',   label: 'Manuscript' },
-  { id: 'smallgroup',   label: 'Small Group' },
-  { id: 'youth',        label: 'Youth' },
-  { id: 'children',     label: 'Children' },
+  { id: 'overview',      label: 'Overview' },
+  { id: 'scripture',     label: 'Scripture' },
+  { id: 'language',      label: 'Language' },
+  { id: 'history',       label: 'Historical' },
+  { id: 'archaeology',   label: 'Archaeology' },
+  { id: 'theology',      label: 'Theology' },
+  { id: 'crossref',      label: 'Cross-refs' },
+  { id: 'christ',        label: 'Christ' },
+  { id: 'commentary',    label: 'Commentary' },
+  { id: 'fathers',       label: 'Church Fathers' },
+  { id: 'quotes',        label: 'Quotes' },
+  { id: 'books',         label: 'Book List' },
+  { id: 'illustrations', label: 'Illustrations' },
+  { id: 'news',          label: 'News & Research' },
+  { id: 'outline',       label: 'Outline' },
+  { id: 'manuscript',    label: 'Manuscript' },
+  { id: 'smallgroup',    label: 'Small Group' },
+  { id: 'youth',         label: 'Youth' },
+  { id: 'children',      label: 'Children' },
 ]
 
 const ROLE_LABELS: Record<string, string> = {
@@ -34,24 +34,25 @@ const ROLE_LABELS: Record<string, string> = {
   children: "Children's Worker",
 }
 
-const PROGRESS = [
-  'Analyzing the passage…',
-  'Studying original languages…',
-  'Researching historical context…',
-  'Gathering archaeological evidence…',
-  'Building theological framework…',
-  'Assembling cross-references…',
-  'Synthesizing commentary tradition…',
-  'Gathering church fathers & quotes…',
-  'Curating book recommendations…',
-  'Crafting illustrations…',
-  'Reviewing news & research…',
-  'Building sermon outline…',
-  'Writing manuscript…',
-  'Preparing group questions…',
-  'Creating youth & children content…',
-  'Finalizing your dossier…',
-]
+const ROLE_PROGRESS: Record<string, string[]> = {
+  pastor:     ['Analyzing the passage…','Studying original languages…','Researching historical context…','Gathering archaeological evidence…','Synthesizing commentary…','Crafting illustrations…','Building sermon outline…','Writing manuscript…','Finalizing your dossier…'],
+  theologian: ['Analyzing the passage…','Studying original languages…','Researching historical context…','Gathering archaeological evidence…','Building theological framework…','Assembling cross-references…','Synthesizing commentary…','Gathering church fathers…','Curating book recommendations…','Reviewing news & research…','Finalizing your dossier…'],
+  teacher:    ['Analyzing the passage…','Researching historical context…','Synthesizing commentary…','Crafting illustrations…','Building lesson outline…','Preparing discussion questions…','Finalizing your dossier…'],
+  smallgroup: ['Analyzing the passage…','Researching historical context…','Crafting illustrations…','Preparing discussion questions…','Building group activity…','Finalizing your dossier…'],
+  youth:      ['Analyzing the passage…','Researching historical context…','Finding cultural connections…','Crafting illustrations…','Building youth content…','Finalizing your dossier…'],
+  children:   ['Analyzing the passage…','Crafting the story…','Building object lesson…','Creating craft & activity ideas…','Writing parent connection…','Finalizing your dossier…'],
+}
+
+function getProgressSteps(roles: string[]): string[] {
+  const seen = new Set<string>()
+  const steps: string[] = []
+  roles.forEach(role => {
+    ;(ROLE_PROGRESS[role] || []).forEach(step => {
+      if (!seen.has(step)) { seen.add(step); steps.push(step) }
+    })
+  })
+  return steps
+}
 
 export default function StudyPage() {
   const params = useParams()
@@ -59,22 +60,21 @@ export default function StudyPage() {
   const passage = decodeURIComponent(params.passage as string)
   const rolesParam = searchParams.get('roles') || 'pastor'
   const roles = rolesParam.split(',').filter(Boolean)
+  const PROGRESS = getProgressSteps(roles)
 
   const [data, setData] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState('overview')
-  const [bibleVersion, setBibleVersion] = useState('esv')
+  const [bibleVersion, setBibleVersion] = useState('kjv')
   const [progressStep, setProgressStep] = useState(0)
 
   useEffect(() => {
     let interval: NodeJS.Timeout
-
     async function fetchStudy() {
       interval = setInterval(() => {
         setProgressStep(prev => prev < PROGRESS.length - 1 ? prev + 1 : prev)
-      }, 4000)
-
+      }, 5000)
       try {
         const res = await fetch('/api/study', {
           method: 'POST',
@@ -91,12 +91,10 @@ export default function StudyPage() {
         setLoading(false)
       }
     }
-
     fetchStudy()
     return () => clearInterval(interval)
   }, [passage])
 
-  // Determine which tabs to show based on data
   const visibleTabs = data?.tabs
     ? ALL_TABS.filter(t => (data.tabs as string[]).includes(t.id))
     : ALL_TABS
@@ -104,30 +102,24 @@ export default function StudyPage() {
   return (
     <div style={{ minHeight:'100vh', background:'#0D1117', color:'#F5F0E8', fontFamily:"'DM Sans',system-ui,sans-serif" }}>
       <style>{`
-        @keyframes spin { to { transform: rotate(360deg); } }
+        @keyframes spin { to { transform:rotate(360deg); } }
         @keyframes fadeIn { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:translateY(0); } }
         .tab-bar::-webkit-scrollbar { display:none; }
       `}</style>
 
-      {/* NAV */}
       <nav style={{ position:'sticky', top:0, zIndex:50, display:'flex', alignItems:'center', justifyContent:'space-between', padding:'0 32px', height:56, background:'rgba(13,17,23,0.97)', backdropFilter:'blur(12px)', borderBottom:'1px solid rgba(255,255,255,0.08)' }}>
-        <a href="/" style={{ fontFamily:"'Playfair Display',serif", fontSize:18, fontWeight:700, color:'#F5F0E8', textDecoration:'none' }}>
-          Passage<span style={{ color:'#C9973A' }}>Lab</span>
-        </a>
+        <a href="/" style={{ fontFamily:"'Playfair Display',serif", fontSize:18, fontWeight:700, color:'#F5F0E8', textDecoration:'none' }}>Passage<span style={{ color:'#C9973A' }}>Lab</span></a>
         <div style={{ display:'flex', alignItems:'center', gap:12 }}>
           <div style={{ fontFamily:"'Playfair Display',serif", fontSize:15, fontWeight:600, color:'#F5F0E8', fontStyle:'italic' }}>{passage}</div>
           <div style={{ display:'flex', gap:6 }}>
             {roles.map(r => (
-              <span key={r} style={{ fontSize:10, fontFamily:"'DM Mono',monospace", color:'#C9973A', background:'rgba(201,151,58,0.1)', border:'1px solid rgba(201,151,58,0.2)', borderRadius:4, padding:'2px 8px' }}>
-                {ROLE_LABELS[r] || r}
-              </span>
+              <span key={r} style={{ fontSize:10, fontFamily:"'DM Mono',monospace", color:'#C9973A', background:'rgba(201,151,58,0.1)', border:'1px solid rgba(201,151,58,0.2)', borderRadius:4, padding:'2px 8px' }}>{ROLE_LABELS[r] || r}</span>
             ))}
           </div>
         </div>
         <a href="/" style={{ fontSize:13, color:'#8892A4', textDecoration:'none' }}>← New study</a>
       </nav>
 
-      {/* LOADING */}
       {loading && (
         <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', minHeight:'85vh', gap:24, padding:'0 24px' }}>
           <div style={{ width:40, height:40, border:'2.5px solid rgba(255,255,255,0.08)', borderTopColor:'#C9973A', borderRadius:'50%', animation:'spin 0.9s linear infinite' }} />
@@ -135,18 +127,17 @@ export default function StudyPage() {
             <div style={{ fontSize:16, fontWeight:500, color:'#F5F0E8', marginBottom:8 }}>Building your research dossier</div>
             <div key={progressStep} style={{ fontSize:14, color:'#C9973A', marginBottom:24, animation:'fadeIn 0.4s ease', minHeight:22 }}>{PROGRESS[progressStep]}</div>
             <div style={{ display:'flex', gap:4, justifyContent:'center' }}>
-              {PROGRESS.map((_, i) => (
-                <div key={i} style={{ width: i===progressStep ? 20 : 6, height:4, borderRadius:2, background: i===progressStep ? '#C9973A' : 'rgba(255,255,255,0.1)', transition:'all 0.3s ease' }} />
+              {PROGRESS.map((_,i) => (
+                <div key={i} style={{ width:i===progressStep?20:6, height:4, borderRadius:2, background:i===progressStep?'#C9973A':'rgba(255,255,255,0.1)', transition:'all 0.3s ease' }} />
               ))}
             </div>
           </div>
           <div style={{ fontSize:12, color:'#8892A4', textAlign:'center', maxWidth:400, lineHeight:1.7 }}>
-            Tailored for: {roles.map(r => ROLE_LABELS[r]).join(' + ')}
+            Tailored for: {roles.map(r => ROLE_LABELS[r]).filter(Boolean).join(' + ')}
           </div>
         </div>
       )}
 
-      {/* ERROR */}
       {error && !loading && (
         <div style={{ maxWidth:600, margin:'80px auto', padding:'0 24px' }}>
           <div style={{ background:'rgba(139,26,26,0.15)', border:'1px solid rgba(139,26,26,0.3)', borderRadius:12, padding:'24px 28px' }}>
@@ -157,11 +148,8 @@ export default function StudyPage() {
         </div>
       )}
 
-      {/* CONTENT */}
       {data && !loading && (
         <div style={{ maxWidth:880, margin:'0 auto', padding:'32px 24px 80px' }}>
-
-          {/* Header */}
           <div style={{ marginBottom:28 }}>
             <div style={{ fontFamily:"'Playfair Display',serif", fontSize:30, fontWeight:700, color:'#F5F0E8', marginBottom:6 }}>{data.passage}</div>
             {data.overview?.author && (
@@ -177,19 +165,17 @@ export default function StudyPage() {
             )}
           </div>
 
-          {/* TABS */}
           <div className="tab-bar" style={{ overflowX:'auto', borderBottom:'1px solid rgba(255,255,255,0.08)', marginBottom:32, scrollbarWidth:'none' }}>
             <div style={{ display:'flex', whiteSpace:'nowrap' }}>
               {visibleTabs.map(t => (
                 <button key={t.id} onClick={() => setActiveTab(t.id)} style={{
                   padding:'10px 14px', fontSize:12,
-                  fontWeight: activeTab===t.id ? 600 : 400,
-                  color: activeTab===t.id ? '#C9973A' : '#8892A4',
+                  fontWeight:activeTab===t.id?600:400,
+                  color:activeTab===t.id?'#C9973A':'#8892A4',
                   background:'none', border:'none',
-                  borderBottom:`2px solid ${activeTab===t.id ? '#C9973A' : 'transparent'}`,
+                  borderBottom:`2px solid ${activeTab===t.id?'#C9973A':'transparent'}`,
                   marginBottom:-1, cursor:'pointer',
                   fontFamily:"'DM Sans',sans-serif", whiteSpace:'nowrap',
-                  transition:'color 0.15s',
                 }}>{t.label}</button>
               ))}
             </div>
@@ -202,8 +188,6 @@ export default function StudyPage() {
   )
 }
 
-// ─── HELPERS ──────────────────────────────────────────────────────────────────
-
 function Sec({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div style={{ marginBottom:'1.75rem' }}>
@@ -212,11 +196,9 @@ function Sec({ title, children }: { title: string; children: React.ReactNode }) 
     </div>
   )
 }
-
 function Body({ children }: { children: React.ReactNode }) {
   return <p style={{ fontSize:14, color:'#F5F0E8', lineHeight:1.85, margin:0 }}>{children}</p>
 }
-
 function InfoBlock({ label, text }: { label: string; text?: string }) {
   if (!text) return null
   return (
@@ -226,7 +208,6 @@ function InfoBlock({ label, text }: { label: string; text?: string }) {
     </div>
   )
 }
-
 function Highlight({ label, text }: { label: string; text?: string }) {
   if (!text) return null
   return (
@@ -236,25 +217,16 @@ function Highlight({ label, text }: { label: string; text?: string }) {
     </div>
   )
 }
-
 function Pills({ items=[] }: { items?: string[] }) {
   return (
     <div style={{ display:'flex', flexWrap:'wrap', gap:8, marginTop:8 }}>
-      {items.map((r,i) => (
-        <span key={i} style={{ background:'rgba(255,255,255,0.04)', border:'0.5px solid rgba(255,255,255,0.1)', borderRadius:20, padding:'5px 14px', fontSize:12, color:'#8892A4', lineHeight:1.5 }}>{r}</span>
-      ))}
+      {items.map((r,i) => <span key={i} style={{ background:'rgba(255,255,255,0.04)', border:'0.5px solid rgba(255,255,255,0.1)', borderRadius:20, padding:'5px 14px', fontSize:12, color:'#8892A4' }}>{r}</span>)}
     </div>
   )
 }
-
 function Card({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) {
-  return (
-    <div style={{ background:'rgba(255,255,255,0.03)', border:'0.5px solid rgba(255,255,255,0.08)', borderRadius:12, padding:20, marginBottom:14, ...style }}>
-      {children}
-    </div>
-  )
+  return <div style={{ background:'rgba(255,255,255,0.03)', border:'0.5px solid rgba(255,255,255,0.08)', borderRadius:12, padding:20, marginBottom:14, ...style }}>{children}</div>
 }
-
 function PreachNote({ text }: { text?: string }) {
   if (!text) return null
   return (
@@ -264,8 +236,6 @@ function PreachNote({ text }: { text?: string }) {
     </div>
   )
 }
-
-// ─── TAB CONTENT ──────────────────────────────────────────────────────────────
 
 function TabContent({ tab, data, bibleVersion, setBibleVersion }: any) {
 
@@ -280,13 +250,13 @@ function TabContent({ tab, data, bibleVersion, setBibleVersion }: any) {
         <Sec title="Historical Setting"><Body>{o.setting}</Body></Sec>
         <Sec title="Key Themes">
           <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(130px,1fr))', gap:8, marginTop:8 }}>
-            {(o.themes||[]).map((t: string,i: number) => (
+            {(o.themes||[]).map((t:string,i:number) => (
               <div key={i} style={{ background:'rgba(255,255,255,0.04)', border:'0.5px solid rgba(255,255,255,0.08)', borderRadius:8, padding:'10px 14px', fontSize:13, fontWeight:500, color:'#F5F0E8' }}>{t}</div>
             ))}
           </div>
         </Sec>
         <Sec title="Teaching Opportunities">
-          {(o.teaching_opportunities||[]).map((t: string,i: number) => (
+          {(o.teaching_opportunities||[]).map((t:string,i:number) => (
             <div key={i} style={{ fontSize:14, color:'#F5F0E8', padding:'5px 0', lineHeight:1.7 }}>→ {t}</div>
           ))}
         </Sec>
@@ -296,27 +266,34 @@ function TabContent({ tab, data, bibleVersion, setBibleVersion }: any) {
 
   if (tab === 'scripture') {
     const sc = data.scripture || {}
+    const bt = data.bibleText || {}
+    const versions = ['kjv','web','asv','ylt']
+    const labels: Record<string,string> = { kjv:'KJV', web:'WEB', asv:'ASV', ylt:'YLT' }
     return (
       <div>
         <div style={{ display:'flex', gap:8, marginBottom:20, flexWrap:'wrap' }}>
-          {['esv','niv','nasb','kjv'].map(v => (
+          {versions.map(v => (
             <button key={v} onClick={() => setBibleVersion(v)} style={{
-              padding:'6px 18px', borderRadius:6, fontSize:12, fontWeight:600, cursor:'pointer', fontFamily:"'DM Sans',sans-serif",
-              background: bibleVersion===v ? '#C9973A' : 'none',
-              color: bibleVersion===v ? '#0D1117' : '#8892A4',
-              border: bibleVersion===v ? 'none' : '1px solid rgba(255,255,255,0.1)',
-            }}>{v.toUpperCase()}</button>
+              padding:'6px 18px', borderRadius:6, fontSize:12, fontWeight:600, cursor:'pointer',
+              fontFamily:"'DM Sans',sans-serif",
+              background:bibleVersion===v?'#C9973A':'none',
+              color:bibleVersion===v?'#0D1117':'#8892A4',
+              border:bibleVersion===v?'none':'1px solid rgba(255,255,255,0.1)',
+            }}>{labels[v]}</button>
           ))}
         </div>
-        {sc[bibleVersion] && (
-          <div style={{ fontFamily:'Georgia,serif', fontSize:15, lineHeight:2.2, color:'#F5F0E8', background:'rgba(255,255,255,0.03)', border:'0.5px solid rgba(255,255,255,0.08)', borderRadius:12, padding:'24px 28px', marginBottom:20 }}>
-            {sc[bibleVersion]}
+        {bt[bibleVersion] && (
+          <div style={{ fontFamily:'Georgia,serif', fontSize:15, lineHeight:2.2, color:'#F5F0E8', background:'rgba(255,255,255,0.03)', border:'0.5px solid rgba(255,255,255,0.08)', borderRadius:12, padding:'24px 28px', marginBottom:20, whiteSpace:'pre-wrap' }}>
+            {bt[bibleVersion]}
           </div>
         )}
+        <div style={{ fontSize:11, color:'rgba(136,146,164,0.6)', marginBottom:24, fontStyle:'italic' }}>
+          KJV, WEB, ASV, and YLT are public domain translations.
+        </div>
         <Highlight label="Key Verse" text={sc.key_verse} />
         {(sc.verse_by_verse||[]).length > 0 && (
           <Sec title="Verse-by-Verse Exegetical Notes">
-            {sc.verse_by_verse.map((v: any,i: number) => (
+            {sc.verse_by_verse.map((v:any,i:number) => (
               <div key={i} style={{ borderBottom:'0.5px solid rgba(255,255,255,0.06)', paddingBottom:18, marginBottom:18 }}>
                 <div style={{ fontSize:11, fontWeight:600, color:'#C9973A', fontFamily:"'DM Mono',monospace", marginBottom:7 }}>{v.verse}</div>
                 <Body>{v.notes}</Body>
@@ -331,7 +308,7 @@ function TabContent({ tab, data, bibleVersion, setBibleVersion }: any) {
   if (tab === 'language') {
     return (
       <div>
-        {(data.language||[]).map((w: any,i: number) => (
+        {(data.language||[]).map((w:any,i:number) => (
           <Card key={i}>
             <div style={{ display:'flex', alignItems:'baseline', gap:12, marginBottom:14, flexWrap:'wrap' }}>
               <span style={{ fontFamily:"'Playfair Display',serif", fontSize:26, color:'#C9973A', fontWeight:600 }}>{w.word}</span>
@@ -357,7 +334,7 @@ function TabContent({ tab, data, bibleVersion, setBibleVersion }: any) {
         <InfoBlock label="Political Environment" text={h.political} />
         <InfoBlock label="Religious Climate" text={h.religious} />
         <InfoBlock label="Economic Conditions" text={h.economic} />
-        <InfoBlock label="Social Customs & Dynamics" text={h.social} />
+        <InfoBlock label="Social Customs" text={h.social} />
         <InfoBlock label="Geography" text={h.geographical} />
         <InfoBlock label="What the Original Audience Understood" text={h.original_audience} />
         <InfoBlock label="Modern Blind Spots" text={h.blind_spots} />
@@ -372,7 +349,7 @@ function TabContent({ tab, data, bibleVersion, setBibleVersion }: any) {
   if (tab === 'archaeology') {
     return (
       <div>
-        {(data.archaeology||[]).map((a: any,i: number) => (
+        {(data.archaeology||[]).map((a:any,i:number) => (
           <Card key={i}>
             <div style={{ fontFamily:"'Playfair Display',serif", fontSize:17, fontWeight:600, color:'#F5F0E8', marginBottom:4 }}>{a.discovery}</div>
             <div style={{ fontSize:11, color:'#8892A4', fontFamily:"'DM Mono',monospace", marginBottom:16 }}>{a.location} · Found: {a.date_found}</div>
@@ -393,17 +370,17 @@ function TabContent({ tab, data, bibleVersion, setBibleVersion }: any) {
         <InfoBlock label="Christology" text={t.christ} />
         <InfoBlock label="Holy Spirit" text={t.holy_spirit} />
         <InfoBlock label="Salvation" text={t.salvation} />
-        <InfoBlock label="Humanity & Human Nature" text={t.humanity} />
+        <InfoBlock label="Humanity" text={t.humanity} />
         <InfoBlock label="Kingdom of God" text={t.kingdom} />
         <InfoBlock label="Covenant" text={t.covenant} />
         <InfoBlock label="Church & Community" text={t.church} />
         <InfoBlock label="Eschatology" text={t.eschatology} />
         <InfoBlock label="Biblical Theology Arc" text={t.biblical_theology} />
-        <InfoBlock label="Systematic Theology Connections" text={t.systematic_connections} />
+        <InfoBlock label="Systematic Connections" text={t.systematic_connections} />
         <InfoBlock label="Practical Theology" text={t.practical_theology} />
         {(t.doctrinal_issues||[]).length > 0 && (
           <Sec title="Doctrinal Issues">
-            {t.doctrinal_issues.map((d: string,i: number) => (
+            {t.doctrinal_issues.map((d:string,i:number) => (
               <div key={i} style={{ fontSize:14, color:'#F5F0E8', padding:'6px 0', lineHeight:1.7 }}>→ {d}</div>
             ))}
           </Sec>
@@ -451,7 +428,7 @@ function TabContent({ tab, data, bibleVersion, setBibleVersion }: any) {
         <InfoBlock label="Calvin" text={c.calvin} />
         <InfoBlock label="Augustine" text={c.augustine} />
         <InfoBlock label="Luther" text={c.luther} />
-        <InfoBlock label="Modern Reformed (Carson, Piper, Sproul)" text={c.modern_reformed} />
+        <InfoBlock label="Modern Reformed" text={c.modern_reformed} />
         <InfoBlock label="Modern Evangelical Scholarship" text={c.modern_evangelical} />
         <InfoBlock label="Where Commentators Agree" text={c.areas_of_agreement} />
         <InfoBlock label="Where Commentators Disagree" text={c.areas_of_debate} />
@@ -463,8 +440,8 @@ function TabContent({ tab, data, bibleVersion, setBibleVersion }: any) {
   if (tab === 'fathers') {
     return (
       <div>
-        <div style={{ fontSize:13, color:'#8892A4', marginBottom:20, lineHeight:1.7 }}>What the early church said about this passage — voices from the first five centuries.</div>
-        {(data.church_fathers||[]).map((f: any,i: number) => (
+        <div style={{ fontSize:13, color:'#8892A4', marginBottom:20, lineHeight:1.7 }}>What the early church said about this passage.</div>
+        {(data.church_fathers||[]).map((f:any,i:number) => (
           <Card key={i}>
             <div style={{ display:'flex', alignItems:'baseline', gap:10, marginBottom:10 }}>
               <span style={{ fontFamily:"'Playfair Display',serif", fontSize:16, fontWeight:600, color:'#F5F0E8' }}>{f.father}</span>
@@ -481,7 +458,7 @@ function TabContent({ tab, data, bibleVersion, setBibleVersion }: any) {
   if (tab === 'quotes') {
     return (
       <div>
-        {(data.quotes||[]).map((q: any,i: number) => (
+        {(data.quotes||[]).map((q:any,i:number) => (
           <div key={i} style={{ borderBottom:'0.5px solid rgba(255,255,255,0.06)', paddingBottom:20, marginBottom:20 }}>
             <div style={{ fontFamily:"'Playfair Display',serif", fontSize:15, color:'#F5F0E8', fontStyle:'italic', lineHeight:1.85, marginBottom:10 }}>"{q.quote}"</div>
             <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:6 }}>
@@ -496,13 +473,13 @@ function TabContent({ tab, data, bibleVersion, setBibleVersion }: any) {
   }
 
   if (tab === 'books') {
-    const levelColor: Record<string,string> = { Beginner:'#1D9E75', Intermediate:'#C9973A', Advanced:'#B22222', Scholar:'#534AB7' }
+    const lc: Record<string,string> = { Beginner:'#1D9E75', Intermediate:'#C9973A', Advanced:'#B22222', Scholar:'#534AB7' }
     return (
       <div>
         <div style={{ fontSize:13, color:'#8892A4', marginBottom:20, lineHeight:1.7 }}>Curated resources for deeper study of this passage.</div>
-        {(data.books||[]).map((b: any,i: number) => (
+        {(data.books||[]).map((b:any,i:number) => (
           <Card key={i} style={{ display:'flex', gap:16, alignItems:'flex-start' }}>
-            <div style={{ width:4, flexShrink:0, alignSelf:'stretch', borderRadius:2, background:levelColor[b.level]||'#C9973A' }} />
+            <div style={{ width:4, flexShrink:0, alignSelf:'stretch', borderRadius:2, background:lc[b.level]||'#C9973A' }} />
             <div style={{ flex:1 }}>
               <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:10, marginBottom:6, flexWrap:'wrap' }}>
                 <div>
@@ -511,7 +488,7 @@ function TabContent({ tab, data, bibleVersion, setBibleVersion }: any) {
                 </div>
                 <div style={{ display:'flex', gap:6, flexShrink:0 }}>
                   <span style={{ fontSize:10, fontFamily:"'DM Mono',monospace", color:'#C9973A', background:'rgba(201,151,58,0.1)', border:'1px solid rgba(201,151,58,0.2)', borderRadius:4, padding:'2px 8px' }}>{b.type}</span>
-                  <span style={{ fontSize:10, fontFamily:"'DM Mono',monospace", color:levelColor[b.level]||'#C9973A', background:'rgba(255,255,255,0.04)', border:'0.5px solid rgba(255,255,255,0.1)', borderRadius:4, padding:'2px 8px' }}>{b.level}</span>
+                  <span style={{ fontSize:10, fontFamily:"'DM Mono',monospace", color:lc[b.level]||'#C9973A', background:'rgba(255,255,255,0.04)', border:'0.5px solid rgba(255,255,255,0.1)', borderRadius:4, padding:'2px 8px' }}>{b.level}</span>
                 </div>
               </div>
               <Body>{b.description}</Body>
@@ -525,7 +502,7 @@ function TabContent({ tab, data, bibleVersion, setBibleVersion }: any) {
   if (tab === 'illustrations') {
     return (
       <div>
-        {(data.illustrations||[]).map((il: any,i: number) => (
+        {(data.illustrations||[]).map((il:any,i:number) => (
           <div key={i} style={{ borderLeft:'3px solid #C9973A', borderRadius:'0 12px 12px 0', background:'rgba(255,255,255,0.03)', padding:'18px 20px', marginBottom:16 }}>
             <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:12, flexWrap:'wrap' }}>
               <span style={{ fontSize:10, fontWeight:600, color:'#C9973A', fontFamily:"'DM Mono',monospace", textTransform:'uppercase', letterSpacing:'1px', background:'rgba(201,151,58,0.1)', borderRadius:4, padding:'3px 10px' }}>{il.category}</span>
@@ -546,7 +523,7 @@ function TabContent({ tab, data, bibleVersion, setBibleVersion }: any) {
     return (
       <div>
         <div style={{ fontSize:13, color:'#8892A4', marginBottom:20, lineHeight:1.7 }}>Recent scholarship, archaeological findings, and cultural developments relevant to this passage.</div>
-        {(data.news||[]).map((n: any,i: number) => (
+        {(data.news||[]).map((n:any,i:number) => (
           <Card key={i}>
             <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:10, flexWrap:'wrap' }}>
               <span style={{ fontSize:10, fontWeight:600, color:'#C9973A', fontFamily:"'DM Mono',monospace", textTransform:'uppercase', letterSpacing:'1px', background:'rgba(201,151,58,0.1)', borderRadius:4, padding:'3px 10px' }}>{n.type}</span>
@@ -569,12 +546,12 @@ function TabContent({ tab, data, bibleVersion, setBibleVersion }: any) {
         <Highlight label="Sermon Title" text={ol.title} />
         <Highlight label="Big Idea" text={ol.big_idea} />
         <InfoBlock label="Introduction" text={ol.introduction} />
-        {(ol.points||[]).map((p: any,i: number) => (
+        {(ol.points||[]).map((p:any,i:number) => (
           <div key={i} style={{ display:'flex', gap:16, padding:'18px 0', borderBottom:'0.5px solid rgba(255,255,255,0.06)' }}>
             <div style={{ fontFamily:"'Playfair Display',serif", fontSize:28, fontWeight:700, color:'rgba(201,151,58,0.4)', minWidth:28, lineHeight:1.2 }}>{i+1}</div>
             <div style={{ flex:1 }}>
               <div style={{ fontSize:15, fontWeight:600, color:'#F5F0E8', marginBottom:10 }}>{p.point}</div>
-              {(p.subpoints||[]).map((sp: string,j: number) => (
+              {(p.subpoints||[]).map((sp:string,j:number) => (
                 <div key={j} style={{ fontSize:13, color:'#8892A4', lineHeight:1.75, paddingLeft:14, marginBottom:5 }}>· {sp}</div>
               ))}
               {p.illustration && (
@@ -596,8 +573,8 @@ function TabContent({ tab, data, bibleVersion, setBibleVersion }: any) {
           <InfoBlock label="Conclusion" text={ol.conclusion} />
           <InfoBlock label="Invitation" text={ol.invitation} />
         </div>
-        <Sec title="Alternative Sermon Structures">
-          {(ol.alternative_structures||[]).map((a: string,i: number) => (
+        <Sec title="Alternative Structures">
+          {(ol.alternative_structures||[]).map((a:string,i:number) => (
             <div key={i} style={{ fontSize:14, color:'#F5F0E8', padding:'7px 0', lineHeight:1.7, borderBottom:'0.5px solid rgba(255,255,255,0.05)' }}>→ {a}</div>
           ))}
         </Sec>
@@ -609,8 +586,8 @@ function TabContent({ tab, data, bibleVersion, setBibleVersion }: any) {
     const m = data.manuscript || {}
     return (
       <div>
-        {[['Introduction',m.intro],['Body',m.body],['Conclusion',m.conclusion]].map(([label,text]) => (
-          <div key={label} style={{ marginBottom:32 }}>
+        {[['Introduction', m.intro], ['Body', m.body], ['Conclusion', m.conclusion]].map(([label, text]) => (
+          <div key={label as string} style={{ marginBottom:32 }}>
             <div style={{ fontSize:10, fontWeight:600, fontFamily:"'DM Mono',monospace", color:'#C9973A', textTransform:'uppercase', letterSpacing:'1.2px', marginBottom:14 }}>{label}</div>
             <div style={{ fontFamily:'Georgia,serif', fontSize:15, lineHeight:2.2, color:'#F5F0E8', background:'rgba(255,255,255,0.03)', border:'0.5px solid rgba(255,255,255,0.08)', borderRadius:12, padding:'24px 28px' }}>{text}</div>
           </div>
@@ -624,9 +601,9 @@ function TabContent({ tab, data, bibleVersion, setBibleVersion }: any) {
     return (
       <div>
         <Highlight label="Icebreaker" text={sg.icebreaker} />
-        {sg.context_setter && <InfoBlock label="Context Setter (read to open)" text={sg.context_setter} />}
+        {sg.context_setter && <InfoBlock label="Context Setter" text={sg.context_setter} />}
         <Sec title="Discussion Questions">
-          {(sg.questions||[]).map((q: any,i: number) => (
+          {(sg.questions||[]).map((q:any,i:number) => (
             <div key={i} style={{ background:'rgba(255,255,255,0.03)', border:'0.5px solid rgba(255,255,255,0.08)', borderRadius:10, padding:'14px 18px', marginBottom:10 }}>
               <div style={{ fontSize:10, fontWeight:600, color:'#C9973A', fontFamily:"'DM Mono',monospace", textTransform:'uppercase', letterSpacing:'1px', marginBottom:7 }}>{q.type}</div>
               <Body>{q.question}</Body>
@@ -636,7 +613,7 @@ function TabContent({ tab, data, bibleVersion, setBibleVersion }: any) {
         <InfoBlock label="Group Activity" text={sg.activity} />
         {(sg.deeper_study||[]).length > 0 && (
           <Sec title="For Deeper Study">
-            {sg.deeper_study.map((d: string,i: number) => (
+            {sg.deeper_study.map((d:string,i:number) => (
               <div key={i} style={{ fontSize:14, color:'#F5F0E8', padding:'5px 0', lineHeight:1.7 }}>→ {d}</div>
             ))}
           </Sec>
@@ -653,11 +630,23 @@ function TabContent({ tab, data, bibleVersion, setBibleVersion }: any) {
         <Highlight label="The Big Truth" text={y.big_truth} />
         <InfoBlock label="Cultural Hook" text={y.cultural_hook} />
         <InfoBlock label="Memory Verse" text={y.memory_verse} />
-        {y.game && <Card><div style={{ fontSize:10, fontWeight:600, fontFamily:"'DM Mono',monospace", color:'#C9973A', textTransform:'uppercase', letterSpacing:'1px', marginBottom:8 }}>Opening Game</div><Body>{y.game}</Body></Card>}
-        {y.object_lesson && <Card><div style={{ fontFamily:"'Playfair Display',serif", fontSize:15, fontWeight:600, color:'#F5F0E8', marginBottom:8 }}>Object Lesson: {y.object_lesson.object}</div><Body>{y.object_lesson.lesson}</Body></Card>}
+        {y.game && (
+          <Card>
+            <div style={{ fontSize:10, fontWeight:600, fontFamily:"'DM Mono',monospace", color:'#C9973A', textTransform:'uppercase', letterSpacing:'1px', marginBottom:8 }}>Opening Game</div>
+            <Body>{y.game}</Body>
+          </Card>
+        )}
+        {y.object_lesson && (
+          <Card>
+            <div style={{ fontFamily:"'Playfair Display',serif", fontSize:15, fontWeight:600, color:'#F5F0E8', marginBottom:8 }}>Object Lesson: {y.object_lesson.object}</div>
+            <Body>{y.object_lesson.lesson}</Body>
+          </Card>
+        )}
         <Sec title="Discussion Questions">
-          {(y.discussion_questions||[]).map((q: string,i: number) => (
-            <div key={i} style={{ background:'rgba(255,255,255,0.03)', border:'0.5px solid rgba(255,255,255,0.08)', borderRadius:10, padding:'12px 16px', marginBottom:8 }}><Body>{q}</Body></div>
+          {(y.discussion_questions||[]).map((q:string,i:number) => (
+            <div key={i} style={{ background:'rgba(255,255,255,0.03)', border:'0.5px solid rgba(255,255,255,0.08)', borderRadius:10, padding:'12px 16px', marginBottom:8 }}>
+              <Body>{q}</Body>
+            </div>
           ))}
         </Sec>
         <InfoBlock label="Weekly Challenge" text={y.challenge} />
@@ -671,15 +660,26 @@ function TabContent({ tab, data, bibleVersion, setBibleVersion }: any) {
       <div>
         <Highlight label="The Big Truth (Ages 6–10)" text={ch.big_truth} />
         <InfoBlock label="Memory Verse" text={ch.memory_verse} />
-        {ch.story_retelling && <Sec title="Story Retelling"><div style={{ fontFamily:'Georgia,serif', fontSize:15, lineHeight:2.1, color:'#F5F0E8', fontStyle:'italic' }}>{ch.story_retelling}</div></Sec>}
-        {ch.object_lesson && <Card><div style={{ fontFamily:"'Playfair Display',serif", fontSize:15, fontWeight:600, color:'#F5F0E8', marginBottom:8 }}>Object Lesson: {ch.object_lesson.object}</div><Body>{ch.object_lesson.lesson}</Body></Card>}
+        {ch.story_retelling && (
+          <Sec title="Story Retelling">
+            <div style={{ fontFamily:'Georgia,serif', fontSize:15, lineHeight:2.1, color:'#F5F0E8', fontStyle:'italic' }}>{ch.story_retelling}</div>
+          </Sec>
+        )}
+        {ch.object_lesson && (
+          <Card>
+            <div style={{ fontFamily:"'Playfair Display',serif", fontSize:15, fontWeight:600, color:'#F5F0E8', marginBottom:8 }}>Object Lesson: {ch.object_lesson.object}</div>
+            <Body>{ch.object_lesson.lesson}</Body>
+          </Card>
+        )}
         <InfoBlock label="Craft Idea" text={ch.craft_idea} />
         <InfoBlock label="Activity / Game" text={ch.activity} />
         <InfoBlock label="Snack Idea" text={ch.snack_idea} />
         {(ch.discussion_questions||[]).length > 0 && (
           <Sec title="Discussion Questions">
-            {ch.discussion_questions.map((q: string,i: number) => (
-              <div key={i} style={{ background:'rgba(255,255,255,0.03)', border:'0.5px solid rgba(255,255,255,0.08)', borderRadius:10, padding:'12px 16px', marginBottom:8 }}><Body>{q}</Body></div>
+            {ch.discussion_questions.map((q:string,i:number) => (
+              <div key={i} style={{ background:'rgba(255,255,255,0.03)', border:'0.5px solid rgba(255,255,255,0.08)', borderRadius:10, padding:'12px 16px', marginBottom:8 }}>
+                <Body>{q}</Body>
+              </div>
             ))}
           </Sec>
         )}
