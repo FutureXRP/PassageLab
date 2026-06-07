@@ -13,13 +13,13 @@ export type Role =
 // ─── Role → Tab mapping ────────────────────────────────────────────────────
 
 export const ROLE_TABS: Record<Role, string[]> = {
-  pastor:     ['overview','scripture','language','history','hermeneutics','christ','illustrations','outline','apologetics'],
-  theologian: ['overview','scripture','language','history','hermeneutics','theology','crossrefs','christ','apologetics'],
-  teacher:    ['overview','scripture','history','hermeneutics','christ','illustrations','outline','smallgroup','apologetics'],
+  pastor:     ['overview','scripture','language','history','hermeneutics','christ','apologetics','conflicts','illustrations','outline'],
+  theologian: ['overview','scripture','language','history','hermeneutics','theology','crossrefs','christ','apologetics','conflicts'],
+  teacher:    ['overview','scripture','history','hermeneutics','christ','illustrations','outline','smallgroup','conflicts'],
   smallgroup: ['overview','scripture','history','christ','illustrations','smallgroup'],
   youth:      ['overview','scripture','history','christ','illustrations','youth'],
   children:   ['overview','scripture','illustrations','children'],
-  student:    ['overview','scripture','language','history','hermeneutics','theology','crossrefs','essayoutline','apologetics'],
+  student:    ['overview','scripture','language','history','hermeneutics','theology','crossrefs','essayoutline','apologetics','conflicts'],
 }
 
 export const DEEP_TABS: Record<Role, string[]> = {
@@ -35,7 +35,7 @@ export const DEEP_TABS: Record<Role, string[]> = {
 // Tab display order — determines left-to-right tab sequence
 const TAB_ORDER = [
   'overview','scripture','language','history','hermeneutics',
-  'theology','crossrefs','christ','apologetics','illustrations','outline',
+  'theology','crossrefs','christ','apologetics','conflicts','illustrations','outline',
   'smallgroup','youth','children','essayoutline',
   // Deep Dive
   'commentary','fathers','archaeology','apologetics_deep','books','citations'
@@ -68,6 +68,7 @@ export const TAB_MODELS: Record<string, 'sonnet' | 'haiku'> = {
   archaeology:     'sonnet',
   apologetics:     'sonnet',
   apologetics_deep:'sonnet',
+  conflicts:       'sonnet',
   // Haiku — structural/creative/practical tasks
   overview:        'haiku',
   scripture:       'haiku',
@@ -87,15 +88,16 @@ export const TAB_MODELS: Record<string, 'sonnet' | 'haiku'> = {
 
 export const TAB_TOKENS: Record<string, number> = {
   // Quick tabs
-  overview:        1500,
-  scripture:       1800,
+  overview:        1800,
+  scripture:       3000,
   language:        3500,
-  history:         1800,
-  hermeneutics:    2000,
-  theology:        2500,
-  crossrefs:       2000,
-  christ:          1800,
-  apologetics:     2500,
+  history:         2000,
+  hermeneutics:    3000,
+  theology:        3500,
+  crossrefs:       2500,
+  christ:          2000,
+  apologetics:     3000,
+  conflicts:       3000,
   illustrations:   2000,
   outline:         2000,
   smallgroup:      1800,
@@ -103,10 +105,10 @@ export const TAB_TOKENS: Record<string, number> = {
   children:        1500,
   essayoutline:    2000,
   // Deep Dive tabs
-  commentary:      3000,
-  fathers:         2500,
-  archaeology:     3000,
-  apologetics_deep:3500,
+  commentary:      3500,
+  fathers:         3000,
+  archaeology:     3500,
+  apologetics_deep:4000,
   books:           2000,
   citations:       1500,
 }
@@ -153,7 +155,11 @@ const TAB_PROMPTS: Record<string, (passage: string, bibleText: Record<string, st
 }}
 Include a note for every verse or verse group in the passage.`,
 
-  language: (p, b) => `${passageBlock(p, b)}Identify the 3 most theologically significant Greek or Hebrew words in this passage. For each word provide the original script, transliteration, Strongs number, and analysis. Return JSON:
+  language: (p, b) => {
+    const text = b?.kjv || b?.web || Object.values(b || {})[0] || ''
+    const verseCount = (text.match(/\[\w+ \d+:\d+\]/g) || []).length
+    const wordCount = verseCount > 8 ? 5 : verseCount > 3 ? 4 : 3
+    return `${passageBlock(p, b)}Identify the ${wordCount} most theologically significant Greek or Hebrew words in this passage. For each word provide the original script, transliteration, Strongs number, and analysis. Return JSON:
 {"language":[{
   "word":"the original Greek or Hebrew word in its script",
   "transliteration":"full transliteration using English letters",
@@ -164,7 +170,8 @@ Include a note for every verse or verse group in the passage.`,
   "usage":"3 specific cross-references showing canonical usage with brief explanation of each",
   "cognates":"related words in same word family and what they reveal about meaning",
   "preaching_note":"2-3 sentences on what this word unlocks for the preacher and what insight it provides"
-}]}`,
+}]}`
+  },
 
   history: (p, b) => `${passageBlock(p, b)}Return JSON:
 {"history":{
@@ -417,6 +424,23 @@ Include a note for every verse or verse group in the passage.`,
   "isbn":"ISBN-13 if known, or empty string",
   "logos_available":true
 }]}`,
+
+  conflicts: (p, b) => `${passageBlock(p, b)}Identify the most significant genuine interpretive disagreements among serious scholars and traditions about this passage. Represent every position fairly and at its strongest — never strawman. Return JSON:
+{"conflicts":{
+  "central_question":"The single most contested interpretive question about this passage — stated neutrally, as a genuine open question",
+  "why_it_matters":"2-3 sentences on what theological or practical difference the answer makes — why this isn't just an academic debate",
+  "positions":[{
+    "name":"Name of this interpretive position",
+    "held_by":"Which scholars, traditions, or denominations hold this view — specific names where possible",
+    "argument":"3-4 sentences — the strongest version of this position's case, stated as its proponents would state it",
+    "key_texts":"The biblical passages this position most appeals to in support",
+    "weakness":"1-2 honest sentences on where this position faces the most exegetical or theological pressure"
+  }],
+  "common_ground":"3-4 sentences on what all serious interpreters agree on regardless of position — the settled ground",
+  "historical_development":"3-4 sentences on how interpretation of this passage has shifted from the early church through the Reformation to modern scholarship",
+  "secondary_disputes":["A second genuine interpretive disagreement about this passage","A third if applicable"],
+  "pastoral_wisdom":"3-4 sentences on how to handle genuine interpretive uncertainty from the pulpit — what intellectual honesty looks like in preaching without undermining congregational confidence"
+}}`,
 
   apologetics: (p, b) => `${passageBlock(p, b)}You are a world-class Christian apologist with deep knowledge of biblical scholarship, philosophy, and history. Engage objections with intellectual honesty — always represent the strongest version of each objection, never strawman critics, acknowledge genuine difficulties fairly. Return JSON:
 {"apologetics":{

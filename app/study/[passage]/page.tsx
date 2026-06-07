@@ -24,6 +24,7 @@ const TAB_LABELS: Record<string, string> = {
   crossrefs:       'Cross-Refs',
   christ:          'Christ',
   apologetics:     'Apologetics',
+  conflicts:       'Interpretive Conflicts',
   illustrations:   'Illustrations',
   outline:         'Outline',
   smallgroup:      'Small Group',
@@ -773,7 +774,7 @@ function ArchaeologyTab({ data }: { data: any }) {
   )
 }
 
-function BooksTab({ data }: { data: any }) {
+function BooksTab({ data, passage }: { data: any; passage?: string }) {
   const books = data?.books || []
   const levelColor: Record<string, string> = {
     Beginner:     '#34D399',
@@ -781,6 +782,22 @@ function BooksTab({ data }: { data: any }) {
     Advanced:     '#60A5FA',
     Scholar:      PURPLE,
   }
+
+  const amazonTag  = process.env.NEXT_PUBLIC_AMAZON_AFFILIATE_TAG || 'passagelab-20'
+  const logosRef   = process.env.NEXT_PUBLIC_LOGOS_AFFILIATE_REF  || 'passagelab'
+  const cbdAff     = process.env.NEXT_PUBLIC_CBD_AFFILIATE_ID     || 'passagelab'
+
+  function amazonLink(title: string, author: string, isbn?: string) {
+    if (isbn) return `https://www.amazon.com/dp/${isbn.replace(/-/g,'')}?tag=${amazonTag}`
+    return `https://www.amazon.com/s?k=${encodeURIComponent(title + ' ' + author)}&tag=${amazonTag}`
+  }
+  function logosLink(title: string, author: string) {
+    return `https://www.logos.com/search#q=${encodeURIComponent(title + ' ' + author)}&ref=${logosRef}`
+  }
+  function cbdLink(title: string, author: string) {
+    return `https://www.christianbook.com/page/search?q=${encodeURIComponent(title + ' ' + author)}&af=${cbdAff}`
+  }
+
   return (
     <>
       <DeepBanner tabId="books" />
@@ -791,9 +808,35 @@ function BooksTab({ data }: { data: any }) {
             <div style={{ fontFamily: SERIF, fontSize: 15, fontWeight: 600, color: GOLD, marginBottom: 4 }}>{b.title}</div>
             <div style={{ fontSize: 12, color: SLATE, marginBottom: 10 }}>{b.author}</div>
             <p style={{ ...S.bodyTxt, marginBottom: 12 }}>{b.description}</p>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' as const }}>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' as const, marginBottom: 12 }}>
               <span style={{ fontSize: 10, color: levelColor[b.level] || SLATE, background: `${levelColor[b.level] || SLATE}18`, border: `1px solid ${levelColor[b.level] || SLATE}40`, borderRadius: 4, padding: '2px 8px' }}>{b.level}</span>
               <span style={{ fontSize: 10, color: SLATE, background: 'rgba(255,255,255,0.04)', border: '0.5px solid rgba(255,255,255,0.1)', borderRadius: 4, padding: '2px 8px' }}>{b.type}</span>
+            </div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' as const }}>
+              {[
+                { label: 'Amazon ↗', href: amazonLink(b.title, b.author, b.isbn) },
+                { label: 'Logos ↗',  href: logosLink(b.title, b.author) },
+                { label: 'CBD ↗',    href: cbdLink(b.title, b.author) },
+              ].map(({ label, href }) => (
+                <a
+                  key={label}
+                  href={href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    fontSize:     12,
+                    color:        GOLD,
+                    background:   'rgba(201,151,58,0.08)',
+                    border:       '1px solid rgba(201,151,58,0.25)',
+                    borderRadius: 4,
+                    padding:      '4px 10px',
+                    textDecoration: 'none',
+                    fontWeight:   500,
+                  }}
+                >
+                  {label}
+                </a>
+              ))}
             </div>
           </div>
         </div>
@@ -837,6 +880,42 @@ function CitationsTab({ data }: { data: any }) {
   )
 }
 
+function ConflictsTab({ data }: { data: any }) {
+  const c = data?.conflicts
+  if (!c) return null
+  return (
+    <>
+      <Hl label="Central Interpretive Question">{c.central_question}</Hl>
+      <Info label="Why It Matters">{c.why_it_matters}</Info>
+      <Sec title="Major Interpretive Positions">
+        {(c.positions || []).map((pos: any, i: number) => (
+          <div key={i} style={S.card}>
+            <div style={{ fontFamily: SERIF, fontSize: 16, fontWeight: 600, color: PARCHMENT, marginBottom: 4 }}>{pos.name}</div>
+            <div style={{ fontSize: 12, color: SLATE, marginBottom: 12 }}>Held by: {pos.held_by}</div>
+            <Info label="Argument">{pos.argument}</Info>
+            <Info label="Key Texts">{pos.key_texts}</Info>
+            <div style={{ ...S.preach, borderLeft: '3px solid rgba(248,113,113,0.4)', background: 'rgba(248,113,113,0.04)' }}>
+              <div style={{ fontSize: 10, color: '#F87171', textTransform: 'uppercase' as const, letterSpacing: '1px', fontWeight: 600, marginBottom: 4 }}>Point of Tension</div>
+              <p style={{ ...S.bodyTxt, margin: 0 }}>{pos.weakness}</p>
+            </div>
+          </div>
+        ))}
+      </Sec>
+      <Info label="Common Ground — Where All Sides Agree">{c.common_ground}</Info>
+      <Info label="Historical Development">{c.historical_development}</Info>
+      {c.secondary_disputes?.length > 0 && (
+        <Sec title="Secondary Disputes">
+          {c.secondary_disputes.map((d: string, i: number) => <Body key={i}>→ {d}</Body>)}
+        </Sec>
+      )}
+      <div style={S.preach}>
+        <div style={{ fontSize: 10, color: GOLD, textTransform: 'uppercase' as const, letterSpacing: '1px', fontWeight: 600, marginBottom: 4 }}>Pastoral Wisdom</div>
+        <p style={{ ...S.bodyTxt, margin: 0 }}>{c.pastoral_wisdom}</p>
+      </div>
+    </>
+  )
+}
+
 // ─── Tab content router ────────────────────────────────────────────────────
 
 function TabContent({ tabId, data, bibleText, bibleVersion }: {
@@ -857,6 +936,7 @@ function TabContent({ tabId, data, bibleText, bibleVersion }: {
     case 'crossrefs':       return <CrossRefsTab data={data} />
     case 'apologetics':     return <ApologeticsTab data={data} />
     case 'apologetics_deep':return <ApologeticsTab data={data} isDeep />
+    case 'conflicts':       return <ConflictsTab data={data} />
     case 'illustrations':   return <IllustrationsTab data={data} />
     case 'outline':         return <OutlineTab data={data} />
     case 'smallgroup':      return <SmallGroupTab data={data} />
@@ -866,7 +946,7 @@ function TabContent({ tabId, data, bibleText, bibleVersion }: {
     case 'commentary':      return <CommentaryTab data={data} />
     case 'fathers':         return <FathersTab data={data} />
     case 'archaeology':     return <ArchaeologyTab data={data} />
-    case 'books':           return <BooksTab data={data} />
+    case 'books':           return <BooksTab data={data} passage={tabId} />
     case 'citations':       return <CitationsTab data={data} />
     default:                return <pre style={{ color: PARCHMENT, fontSize: 12 }}>{JSON.stringify(data, null, 2)}</pre>
   }
