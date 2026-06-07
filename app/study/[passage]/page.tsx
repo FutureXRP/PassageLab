@@ -997,39 +997,50 @@ function TabButton({ tabId, status, isDeep, isActive, onClick, cached }: {
 
 // ─── Idle tab placeholder ──────────────────────────────────────────────────
 
-function IdlePlaceholder({ tabId, onGenerate, isDeep }: {
-  tabId:       string
-  onGenerate:  () => void
-  isDeep:      boolean
+function IdlePlaceholder({ tabId, onGenerate, isDeep, queuePosition }: {
+  tabId:         string
+  onGenerate:    () => void
+  isDeep:        boolean
+  queuePosition?: number
 }) {
   const color = isDeep ? PURPLE : GOLD
+  const isQueued = (queuePosition ?? -1) >= 0
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column' as const, alignItems: 'center', justifyContent: 'center', padding: '80px 24px', textAlign: 'center' as const }}>
       <div style={{ fontSize: 32, marginBottom: 16, opacity: 0.3 }}>
-        {isDeep ? '🔬' : '📖'}
+        {isQueued ? '⏳' : isDeep ? '🔬' : '📖'}
       </div>
       <div style={{ fontFamily: SERIF, fontSize: 18, color: PARCHMENT, marginBottom: 8 }}>
         {TAB_LABELS[tabId] || tabId}
       </div>
-      <div style={{ fontSize: 14, color: SLATE, marginBottom: 24, maxWidth: 300 }}>
-        {isDeep ? 'Deep Dive content — click to generate a full scholarly analysis' : 'Click to generate this section of your study'}
-      </div>
-      <button
-        onClick={onGenerate}
-        style={{
-          background:   color,
-          color:        INK,
-          border:       'none',
-          borderRadius: 8,
-          padding:      '12px 28px',
-          fontSize:     14,
-          fontWeight:   600,
-          cursor:       'pointer',
-          fontFamily:   SANS,
-        }}
-      >
-        Generate {isDeep ? `Deep Dive` : 'Study'} {isDeep ? '($2)' : '($1)'}
-      </button>
+      {isQueued ? (
+        <div style={{ fontSize: 14, color: SLATE, marginBottom: 24, maxWidth: 300 }}>
+          Queued — position {(queuePosition ?? 0) + 1} in line. Generating one tab at a time for best results.
+        </div>
+      ) : (
+        <div style={{ fontSize: 14, color: SLATE, marginBottom: 24, maxWidth: 300 }}>
+          {isDeep ? 'Deep Dive content — full scholarly analysis generated on demand' : 'Click to generate this section of your study'}
+        </div>
+      )}
+      {!isQueued && (
+        <button
+          onClick={onGenerate}
+          style={{
+            background:   color,
+            color:        INK,
+            border:       'none',
+            borderRadius: 8,
+            padding:      '12px 28px',
+            fontSize:     14,
+            fontWeight:   600,
+            cursor:       'pointer',
+            fontFamily:   SANS,
+          }}
+        >
+          Generate {isDeep ? 'Deep Dive ($2)' : 'Study ($1)'}
+        </button>
+      )}
     </div>
   )
 }
@@ -1046,22 +1057,65 @@ export default function StudyPage() {
   const { quick: quickTabs, deep: deepTabs } = getTabsForRoles(roles)
   const allTabs = [...quickTabs, ...deepTabs]
 
-  const [tabStates, setTabStates]     = useState<Record<string, TabState>>({})
-  const [bibleText, setBibleText]     = useState<any>(null)
+  const [tabStates, setTabStates]       = useState<Record<string, TabState>>({})
+  const [bibleText, setBibleText]       = useState<any>(null)
   const [bibleVersion, setBibleVersion] = useState('kjv')
-  const [activeTab, setActiveTab]     = useState('')
-  const hasInit                        = useRef(false)
+  const [activeTab, setActiveTab]       = useState('')
+  const [currentlyGenerating, setCurrentlyGenerating] = useState<string | null>(null)
+  const generationQueue                  = useRef<string[]>([])
+  const isProcessingQueue                = useRef(false)
+  const hasInit                          = useRef(false)
 
   // Auto-generate Overview + Scripture on load
   useEffect(() => {
     if (hasInit.current) return
     hasInit.current = true
-    generateTab('overview')
-    generateTab('scripture')
+    queueTab('overview')
+    queueTab('scripture')
     setActiveTab('overview')
   }, [])
 
+  // ── Queue system — one tab at a time, sequential ────────────────────────
+  // Prevents rate limit errors and ensures prompt caching works correctly
+  // (each tab's cache write is read by the next tab in sequence)
+
+  function queueTab(tabId: string) {
+    // Don't queue if already done, generating, or already in queue
+    const state = tabStates[tabId]
+    if (state?.status === 'done' || state?.status === 'generating') return
+    if (generationQueue.current.includes(tabId)) return
+
+    generationQueue.current.push(tabId)
+
+    // Mark as queued visually
+    setTabStates(prev => ({
+      ...prev,
+      [tabId]: prev[tabId]?.status === 'done'
+        ? prev[tabId]
+        : { status: 'idle', data: null, cached: false }
+    }))
+
+    // Start processing if not already running
+    if (!isProcessingQueue.current) {
+      processQueue()
+    }
+  }
+
+  async function processQueue() {
+    if (isProcessingQueue.current) return
+    isProcessingQueue.current = true
+
+    while (generationQueue.current.length > 0) {
+      const tabId = generationQueue.current.shift()!
+      await generateTab(tabId)
+    }
+
+    isProcessingQueue.current = false
+    setCurrentlyGenerating(null)
+  }
+
   async function generateTab(tabId: string) {
+    setCurrentlyGenerating(tabId)
     setTabStates(prev => ({
       ...prev,
       [tabId]: { status: 'generating', data: null, cached: false }
@@ -1084,7 +1138,6 @@ export default function StudyPage() {
         return
       }
 
-      // Extract bible text from scripture response
       if (tabId === 'scripture' && json.bibleText) {
         setBibleText(json.bibleText)
       }
@@ -1105,7 +1158,7 @@ export default function StudyPage() {
     setActiveTab(tabId)
     const state = tabStates[tabId]
     if (!state || state.status === 'idle') {
-      generateTab(tabId)
+      queueTab(tabId)
     }
   }
 
@@ -1132,10 +1185,30 @@ export default function StudyPage() {
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <span style={{ fontSize: 12, color: SLATE }}>
-            {Object.values(tabStates).filter(s => s.status === 'generating').length > 0 ? 'Generating…' : `${Object.values(tabStates).filter(s => s.status === 'done').length} tabs ready`}
+            {currentlyGenerating
+              ? `Generating ${TAB_LABELS[currentlyGenerating] || currentlyGenerating}… ${generationQueue.current.length > 0 ? `(${generationQueue.current.length} queued)` : ''}`
+              : `${Object.values(tabStates).filter(s => s.status === 'done').length} tabs ready`
+            }
           </span>
         </div>
       </nav>
+
+      {/* How it works banner */}
+      <div style={{
+        background:   'rgba(201,151,58,0.06)',
+        borderBottom: '1px solid rgba(201,151,58,0.15)',
+        padding:      '10px 24px',
+        display:      'flex',
+        alignItems:   'center',
+        gap:          12,
+      }}>
+        <span style={{ fontSize: 13, color: GOLD, flexShrink: 0 }}>📖</span>
+        <span style={{ fontSize: 12, color: SLATE, lineHeight: 1.5 }}>
+          <span style={{ color: PARCHMENT, fontWeight: 600 }}>How PassageLab works: </span>
+          Overview and Scripture load automatically. Click any tab to generate it on demand — tabs are generated one at a time to ensure quality and avoid errors.
+          {' '}<span style={{ color: GOLD }}>Quick Study tabs ($1)</span> · <span style={{ color: PURPLE }}>Deep Dive tabs ($2)</span> · <span style={{ color: GOLD }}>⚡ Instant</span> = served from library cache at no extra cost.
+        </span>
+      </div>
 
       {/* Quick Study tabs */}
       <div style={{ borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
@@ -1192,7 +1265,7 @@ export default function StudyPage() {
           <div style={{ padding: '40px 0', textAlign: 'center' as const }}>
             <div style={{ color: '#F87171', marginBottom: 16 }}>Generation failed. Please try again.</div>
             <button
-              onClick={() => generateTab(activeTab)}
+              onClick={() => queueTab(activeTab)}
               style={{ background: GOLD, color: INK, border: 'none', borderRadius: 8, padding: '10px 24px', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}
             >
               Retry
@@ -1204,8 +1277,9 @@ export default function StudyPage() {
         {(!activeState || activeState.status === 'idle') && activeTab && (
           <IdlePlaceholder
             tabId={activeTab}
-            onGenerate={() => generateTab(activeTab)}
+            onGenerate={() => queueTab(activeTab)}
             isDeep={isDeepActive}
+            queuePosition={generationQueue.current.indexOf(activeTab)}
           />
         )}
 
