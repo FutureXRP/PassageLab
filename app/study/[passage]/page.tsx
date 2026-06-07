@@ -2,744 +2,1158 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useSearchParams } from 'next/navigation'
+import { getTabsForRoles, Role } from '@/lib/prompts'
 
-const ALL_TABS = [
-  { id: 'overview',      label: 'Overview' },
-  { id: 'scripture',     label: 'Scripture' },
-  { id: 'language',      label: 'Language' },
-  { id: 'history',       label: 'Historical' },
-  { id: 'archaeology',   label: 'Archaeology' },
-  { id: 'theology',      label: 'Theology' },
-  { id: 'crossref',      label: 'Cross-refs' },
-  { id: 'christ',        label: 'Christ' },
-  { id: 'commentary',    label: 'Commentary' },
-  { id: 'fathers',       label: 'Church Fathers' },
-  { id: 'quotes',        label: 'Quotes' },
-  { id: 'books',         label: 'Book List' },
-  { id: 'illustrations', label: 'Illustrations' },
-  { id: 'news',          label: 'News & Research' },
-  { id: 'outline',       label: 'Outline' },
-  { id: 'manuscript',    label: 'Manuscript' },
-  { id: 'smallgroup',    label: 'Small Group' },
-  { id: 'youth',         label: 'Youth' },
-  { id: 'children',      label: 'Children' },
-]
-
-const ROLE_LABELS: Record<string, string> = {
-  pastor: 'Pastor', theologian: 'Theologian', teacher: 'Teacher',
-  smallgroup: 'Small Group', youth: 'Youth Worker', children: "Children's Worker",
-}
-
-const ROLE_PROGRESS: Record<string, string[]> = {
-  pastor:     ['Analyzing the passage…','Studying original languages…','Researching historical context…','Gathering archaeological evidence…','Synthesizing commentary…','Crafting illustrations…','Building sermon outline…','Writing manuscript…','Finalizing your dossier…'],
-  theologian: ['Analyzing the passage…','Studying original languages…','Researching historical context…','Gathering archaeological evidence…','Building theological framework…','Assembling cross-references…','Synthesizing commentary…','Gathering church fathers…','Curating book recommendations…','Reviewing news & research…','Finalizing your dossier…'],
-  teacher:    ['Analyzing the passage…','Researching historical context…','Synthesizing commentary…','Crafting illustrations…','Building lesson outline…','Preparing discussion questions…','Finalizing your dossier…'],
-  smallgroup: ['Analyzing the passage…','Researching historical context…','Crafting illustrations…','Preparing discussion questions…','Building group activity…','Finalizing your dossier…'],
-  youth:      ['Analyzing the passage…','Researching historical context…','Finding cultural connections…','Crafting illustrations…','Building youth content…','Finalizing your dossier…'],
-  children:   ['Analyzing the passage…','Crafting the story…','Building object lesson…','Creating craft & activity…','Writing parent connection…','Finalizing your dossier…'],
-}
-
-function getProgressSteps(roles: string[]): string[] {
-  const seen = new Set<string>()
-  const steps: string[] = []
-  roles.forEach(role => {
-    ;(ROLE_PROGRESS[role] || []).forEach(step => {
-      if (!seen.has(step)) { seen.add(step); steps.push(step) }
-    })
-  })
-  return steps
-}
-
-// Consistent typography
-const SERIF = "'Playfair Display', Georgia, serif"
-const SANS = "'DM Sans', system-ui, sans-serif"
-const GOLD = '#C9973A'
+// ─── Design tokens ────────────────────────────────────────────────────────
+const SERIF     = "'Playfair Display', Georgia, serif"
+const SANS      = "'DM Sans', system-ui, sans-serif"
+const GOLD      = '#C9973A'
 const PARCHMENT = '#F5F0E8'
-const SLATE = '#8892A4'
-const INK = '#0D1117'
+const SLATE     = '#8892A4'
+const INK       = '#0D1117'
+const PURPLE    = '#A78BFA'
 
-export default function StudyPage() {
-  const params = useParams()
-  const searchParams = useSearchParams()
-  const passage = decodeURIComponent(params.passage as string)
-  const rolesParam = searchParams.get('roles') || 'pastor'
-  const roles = rolesParam.split(',').filter(Boolean)
-  const PROGRESS = getProgressSteps(roles)
-
-  const [visibleTabs, setVisibleTabs] = useState<string[]>([])
-  const [tabStates, setTabStates] = useState<Record<string, { state: string; data: any }>>({})
-  const [bibleText, setBibleText] = useState<any>(null)
-  const [bibleVersion, setBibleVersion] = useState('kjv')
-  const [activeTab, setActiveTab] = useState('')
-  const [overviewData, setOverviewData] = useState<any>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [progressStep, setProgressStep] = useState(0)
-  const hasStarted = useRef(false)
-  const progressInterval = useRef<NodeJS.Timeout>()
-
-  useEffect(() => {
-    if (hasStarted.current) return
-    hasStarted.current = true
-
-    progressInterval.current = setInterval(() => {
-      setProgressStep(prev => prev < PROGRESS.length - 1 ? prev + 1 : prev)
-    }, 4000)
-
-    async function stream() {
-      try {
-        const res = await fetch('/api/study', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ passage, roles }),
-        })
-        if (!res.ok) throw new Error('Failed to start study generation')
-        if (!res.body) throw new Error('No response body')
-
-        const reader = res.body.getReader()
-        const decoder = new TextDecoder()
-        let buffer = ''
-
-        while (true) {
-          const { done, value } = await reader.read()
-          if (done) break
-          buffer += decoder.decode(value, { stream: true })
-          const lines = buffer.split('\n')
-          buffer = lines.pop() || ''
-
-          for (const line of lines) {
-            if (!line.startsWith('data: ')) continue
-            try {
-              const event = JSON.parse(line.slice(6))
-
-              if (event.type === 'init') {
-                setVisibleTabs(event.tabs)
-                setLoading(false)
-                clearInterval(progressInterval.current)
-                const initial: Record<string, any> = {}
-                event.tabs.forEach((t: string) => { initial[t] = { state: 'pending', data: null } })
-                setTabStates(initial)
-                setActiveTab(event.tabs[0] || 'overview')
-              }
-
-              if (event.type === 'bible') setBibleText(event.data)
-
-              if (event.type === 'tab_start') {
-                setTabStates(prev => ({ ...prev, [event.tabId]: { ...prev[event.tabId], state: 'generating' } }))
-              }
-
-              if (event.type === 'tab_done') {
-                setTabStates(prev => ({ ...prev, [event.tabId]: { state: 'done', data: event.data } }))
-                if (event.tabId === 'overview') setOverviewData(event.data)
-              }
-
-              if (event.type === 'error') setError(event.message)
-            } catch {}
-          }
-        }
-      } catch (e: any) {
-        setError(e.message)
-        setLoading(false)
-        clearInterval(progressInterval.current)
-      }
-    }
-
-    stream()
-    return () => clearInterval(progressInterval.current)
-  }, [passage])
-
-  const doneCount = visibleTabs.filter(t => tabStates[t]?.state === 'done').length
-  const allDone = visibleTabs.length > 0 && doneCount === visibleTabs.length
-
-  return (
-    <div style={{ minHeight:'100vh', background:INK, color:PARCHMENT, fontFamily:SANS }}>
-      <style>{`
-        @keyframes spin { to { transform:rotate(360deg); } }
-        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
-        @keyframes fadeIn { from{opacity:0;transform:translateY(4px)} to{opacity:1;transform:translateY(0)} }
-        .tab-bar::-webkit-scrollbar { display:none; }
-        * { box-sizing:border-box; }
-      `}</style>
-
-      {/* NAV */}
-      <nav style={{ position:'sticky', top:0, zIndex:50, display:'flex', alignItems:'center', justifyContent:'space-between', padding:'0 32px', height:56, background:'rgba(13,17,23,0.97)', backdropFilter:'blur(12px)', borderBottom:'1px solid rgba(255,255,255,0.08)' }}>
-        <a href="/" style={{ fontFamily:SERIF, fontSize:18, fontWeight:700, color:PARCHMENT, textDecoration:'none' }}>Passage<span style={{ color:GOLD }}>Lab</span></a>
-        <div style={{ display:'flex', alignItems:'center', gap:12 }}>
-          <div style={{ fontFamily:SERIF, fontSize:15, fontWeight:600, color:PARCHMENT, fontStyle:'italic' }}>{passage}</div>
-          <div style={{ display:'flex', gap:6 }}>
-            {roles.map(r => (
-              <span key={r} style={{ fontSize:11, color:GOLD, background:'rgba(201,151,58,0.1)', border:'1px solid rgba(201,151,58,0.2)', borderRadius:4, padding:'2px 10px' }}>{ROLE_LABELS[r] || r}</span>
-            ))}
-          </div>
-        </div>
-        <div style={{ display:'flex', alignItems:'center', gap:16 }}>
-          {!allDone && visibleTabs.length > 0 && (
-            <span style={{ fontSize:12, color:SLATE }}>{doneCount}/{visibleTabs.length} tabs ready</span>
-          )}
-          <a href="/" style={{ fontSize:13, color:SLATE, textDecoration:'none' }}>← New study</a>
-        </div>
-      </nav>
-
-      {/* LOADING */}
-      {loading && (
-        <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', minHeight:'85vh', gap:24 }}>
-          <div style={{ width:40, height:40, border:'2.5px solid rgba(255,255,255,0.08)', borderTopColor:GOLD, borderRadius:'50%', animation:'spin 0.9s linear infinite' }} />
-          <div style={{ textAlign:'center' }}>
-            <div style={{ fontSize:16, fontWeight:500, color:PARCHMENT, marginBottom:8 }}>Building your research dossier</div>
-            <div key={progressStep} style={{ fontSize:14, color:GOLD, marginBottom:24, animation:'fadeIn 0.4s ease', minHeight:22 }}>{PROGRESS[progressStep]}</div>
-            <div style={{ display:'flex', gap:4, justifyContent:'center' }}>
-              {PROGRESS.map((_,i) => (
-                <div key={i} style={{ width:i===progressStep?20:6, height:4, borderRadius:2, background:i===progressStep?GOLD:'rgba(255,255,255,0.1)', transition:'all 0.3s ease' }} />
-              ))}
-            </div>
-          </div>
-          <div style={{ fontSize:12, color:SLATE, textAlign:'center', maxWidth:400, lineHeight:1.7 }}>
-            Tailored for: {roles.map(r => ROLE_LABELS[r]).filter(Boolean).join(' + ')}
-          </div>
-        </div>
-      )}
-
-      {/* ERROR */}
-      {error && (
-        <div style={{ maxWidth:600, margin:'80px auto', padding:'0 24px' }}>
-          <div style={{ background:'rgba(139,26,26,0.15)', border:'1px solid rgba(139,26,26,0.3)', borderRadius:12, padding:'24px 28px' }}>
-            <div style={{ fontSize:15, fontWeight:600, color:PARCHMENT, marginBottom:8 }}>Something went wrong</div>
-            <div style={{ fontSize:13, color:SLATE, marginBottom:16 }}>{error}</div>
-            <a href="/" style={{ fontSize:13, color:GOLD, textDecoration:'none' }}>← Try again</a>
-          </div>
-        </div>
-      )}
-
-      {/* CONTENT */}
-      {!loading && !error && visibleTabs.length > 0 && (
-        <div style={{ maxWidth:900, margin:'0 auto', padding:'32px 24px 80px' }}>
-
-          {/* Header */}
-          <div style={{ marginBottom:28 }}>
-            <div style={{ fontFamily:SERIF, fontSize:32, fontWeight:700, color:PARCHMENT, marginBottom:6 }}>{passage}</div>
-            {overviewData?.overview?.author && (
-              <div style={{ fontSize:13, color:SLATE, marginBottom:20 }}>
-                {overviewData.overview.author} · {overviewData.overview.date}
-              </div>
-            )}
-            {overviewData?.overview?.main_idea ? (
-              <div style={{ background:'linear-gradient(135deg,rgba(201,151,58,0.1),rgba(201,151,58,0.04))', border:'1px solid rgba(201,151,58,0.2)', borderRadius:12, padding:'18px 22px', animation:'fadeIn 0.5s ease' }}>
-                <div style={{ fontSize:10, fontWeight:600, color:GOLD, textTransform:'uppercase', letterSpacing:'1.5px', marginBottom:8 }}>Big Idea</div>
-                <div style={{ fontFamily:SERIF, fontSize:19, color:PARCHMENT, fontStyle:'italic', lineHeight:1.6 }}>{overviewData.overview.main_idea}</div>
-              </div>
-            ) : (
-              <div style={{ background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.08)', borderRadius:12, padding:'18px 22px', animation:'pulse 1.5s ease infinite' }}>
-                <div style={{ fontSize:10, fontWeight:600, color:GOLD, textTransform:'uppercase', letterSpacing:'1.5px', marginBottom:10 }}>Big Idea</div>
-                <div style={{ height:18, background:'rgba(255,255,255,0.06)', borderRadius:4, width:'65%' }} />
-              </div>
-            )}
-          </div>
-
-          {/* TABS */}
-          <div className="tab-bar" style={{ overflowX:'auto', borderBottom:'1px solid rgba(255,255,255,0.08)', marginBottom:32, scrollbarWidth:'none' }}>
-            <div style={{ display:'flex', whiteSpace:'nowrap' }}>
-              {visibleTabs.map(tabId => {
-                const tabInfo = ALL_TABS.find(t => t.id === tabId)
-                const state = tabStates[tabId]?.state || 'pending'
-                const isActive = activeTab === tabId
-                const isDone = state === 'done'
-                const isGenerating = state === 'generating'
-                return (
-                  <button key={tabId} onClick={() => isDone && setActiveTab(tabId)} disabled={!isDone} style={{
-                    padding:'10px 14px', fontSize:12, fontWeight:isActive?600:400,
-                    color: isActive ? GOLD : isDone ? SLATE : 'rgba(136,146,164,0.3)',
-                    background:'none', border:'none',
-                    borderBottom:`2px solid ${isActive?GOLD:'transparent'}`,
-                    marginBottom:-1, cursor:isDone?'pointer':'not-allowed',
-                    fontFamily:SANS, whiteSpace:'nowrap',
-                    display:'flex', alignItems:'center', gap:5, transition:'color 0.2s',
-                  }}>
-                    {tabInfo?.label}
-                    {isGenerating && <span style={{ width:5, height:5, borderRadius:'50%', background:GOLD, display:'inline-block', animation:'pulse 0.8s ease infinite' }} />}
-                    {isDone && !isActive && <span style={{ width:5, height:5, borderRadius:'50%', background:'rgba(29,158,117,0.8)', display:'inline-block' }} />}
-                  </button>
-                )
-              })}
-            </div>
-          </div>
-
-          {/* TAB CONTENT */}
-          {activeTab && tabStates[activeTab] && (
-            <div style={{ animation:'fadeIn 0.3s ease' }}>
-              {tabStates[activeTab].state === 'done'
-                ? <TabContent tab={activeTab} data={tabStates[activeTab].data} bibleText={bibleText} bibleVersion={bibleVersion} setBibleVersion={setBibleVersion} />
-                : <TabSkeleton />
-              }
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  )
+// ─── Tab metadata ─────────────────────────────────────────────────────────
+const TAB_LABELS: Record<string, string> = {
+  overview:        'Overview',
+  scripture:       'Scripture',
+  language:        'Language',
+  history:         'Historical',
+  hermeneutics:    'Hermeneutics',
+  theology:        'Theology',
+  crossrefs:       'Cross-Refs',
+  christ:          'Christ',
+  apologetics:     'Apologetics',
+  illustrations:   'Illustrations',
+  outline:         'Outline',
+  smallgroup:      'Small Group',
+  youth:           'Youth',
+  children:        'Children',
+  essayoutline:    'Essay Outline',
+  commentary:      'Commentary',
+  fathers:         'Church Fathers',
+  archaeology:     'Archaeology',
+  apologetics_deep:'Apologetics+',
+  books:           'Book List',
+  citations:       'Citations',
 }
 
-function TabSkeleton() {
-  return (
-    <div style={{ animation:'pulse 1.5s ease infinite' }}>
-      {[100,72,88,60,94,78].map((w,i) => (
-        <div key={i} style={{ height:14, background:'rgba(255,255,255,0.06)', borderRadius:4, width:`${w}%`, marginBottom:16 }} />
-      ))}
-    </div>
-  )
+// ─── Tab state types ──────────────────────────────────────────────────────
+type TabStatus = 'idle' | 'generating' | 'done' | 'error'
+
+interface TabState {
+  status: TabStatus
+  data:   Record<string, unknown> | null
+  cached: boolean
 }
 
-// Shared components
-const SERIF = "'Playfair Display', Georgia, serif"
-const SANS = "'DM Sans', system-ui, sans-serif"
-const GOLD = '#C9973A'
-const PARCHMENT = '#F5F0E8'
-const SLATE = '#8892A4'
+// ─── Styles ───────────────────────────────────────────────────────────────
+const S = {
+  page: {
+    background: INK,
+    minHeight:  '100vh',
+    color:      PARCHMENT,
+    fontFamily: SANS,
+  } as React.CSSProperties,
+
+  nav: {
+    position:       'sticky' as const,
+    top:            0,
+    zIndex:         100,
+    background:     'rgba(13,17,23,0.97)',
+    backdropFilter: 'blur(12px)',
+    borderBottom:   '1px solid rgba(255,255,255,0.08)',
+    padding:        '0 24px',
+    height:         52,
+    display:        'flex',
+    alignItems:     'center',
+    justifyContent: 'space-between',
+  } as React.CSSProperties,
+
+  logo: {
+    fontFamily: SERIF,
+    fontSize:   18,
+    fontWeight: 700,
+    color:      PARCHMENT,
+  } as React.CSSProperties,
+
+  badge: (color: string): React.CSSProperties => ({
+    fontSize:        11,
+    color,
+    background:      `${color}18`,
+    border:          `1px solid ${color}40`,
+    borderRadius:    4,
+    padding:         '2px 10px',
+    fontFamily:      SANS,
+  }),
+
+  tabRow: {
+    display:         'flex',
+    overflowX:       'auto' as const,
+    scrollbarWidth:  'none' as const,
+    padding:         '0 16px',
+    background:      'rgba(255,255,255,0.02)',
+    borderBottom:    '1px solid rgba(255,255,255,0.06)',
+  } as React.CSSProperties,
+
+  tabRowLabel: {
+    fontSize:       10,
+    color:          SLATE,
+    textTransform:  'uppercase' as const,
+    letterSpacing:  '1px',
+    fontWeight:     600,
+    padding:        '8px 20px 0',
+    fontFamily:     SANS,
+  } as React.CSSProperties,
+
+  content: {
+    maxWidth: 860,
+    margin:   '0 auto',
+    padding:  '28px 24px 80px',
+  } as React.CSSProperties,
+
+  hl: {
+    background:   'rgba(201,151,58,0.08)',
+    border:       '0.5px solid rgba(201,151,58,0.2)',
+    borderRadius: 8,
+    padding:      '14px 18px',
+    marginBottom: 20,
+  } as React.CSSProperties,
+
+  hlLabel: {
+    fontSize:      10,
+    color:         GOLD,
+    textTransform: 'uppercase' as const,
+    letterSpacing: '1px',
+    fontWeight:    600,
+    marginBottom:  6,
+    fontFamily:    SANS,
+  } as React.CSSProperties,
+
+  hlText: {
+    fontFamily:  SERIF,
+    fontSize:    15,
+    color:       PARCHMENT,
+    lineHeight:  1.75,
+    fontStyle:   'italic' as const,
+  } as React.CSSProperties,
+
+  secTitle: {
+    fontSize:      10,
+    color:         GOLD,
+    textTransform: 'uppercase' as const,
+    letterSpacing: '1.2px',
+    fontWeight:    600,
+    marginBottom:  10,
+    fontFamily:    SANS,
+  } as React.CSSProperties,
+
+  bodyTxt: {
+    fontSize:    14,
+    color:       PARCHMENT,
+    lineHeight:  1.85,
+    marginBottom:16,
+    fontFamily:  SANS,
+  } as React.CSSProperties,
+
+  info: {
+    marginBottom: 16,
+    paddingBottom:16,
+    borderBottom: '0.5px solid rgba(255,255,255,0.06)',
+  } as React.CSSProperties,
+
+  infoLabel: {
+    fontSize:      11,
+    color:         SLATE,
+    textTransform: 'uppercase' as const,
+    letterSpacing: '0.8px',
+    fontWeight:    600,
+    marginBottom:  6,
+    fontFamily:    SANS,
+  } as React.CSSProperties,
+
+  deepBanner: {
+    background:   'rgba(167,139,250,0.08)',
+    border:       '0.5px solid rgba(167,139,250,0.2)',
+    borderRadius: 8,
+    padding:      '10px 14px',
+    marginBottom: 20,
+    display:      'flex',
+    alignItems:   'center',
+    gap:          10,
+  } as React.CSSProperties,
+
+  card: {
+    background:   'rgba(255,255,255,0.03)',
+    border:       '0.5px solid rgba(255,255,255,0.08)',
+    borderRadius: 10,
+    padding:      '18px 20px',
+    marginBottom: 16,
+  } as React.CSSProperties,
+
+  themes: {
+    display:             'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))',
+    gap:                 8,
+    marginTop:           8,
+    marginBottom:        20,
+  } as React.CSSProperties,
+
+  pill: {
+    background:   'rgba(255,255,255,0.04)',
+    border:       '0.5px solid rgba(255,255,255,0.08)',
+    borderRadius: 6,
+    padding:      '8px 12px',
+    fontSize:     13,
+    color:        PARCHMENT,
+    fontFamily:   SANS,
+  } as React.CSSProperties,
+
+  illus: {
+    borderLeft:   `3px solid ${GOLD}`,
+    background:   'rgba(255,255,255,0.03)',
+    padding:      '14px 16px',
+    marginBottom: 14,
+  } as React.CSSProperties,
+
+  illusCat: {
+    fontSize:        10,
+    fontWeight:      600,
+    color:           GOLD,
+    textTransform:   'uppercase' as const,
+    letterSpacing:   '1px',
+    background:      'rgba(201,151,58,0.1)',
+    borderRadius:    4,
+    padding:         '2px 8px',
+    display:         'inline-block',
+    marginBottom:    8,
+  } as React.CSSProperties,
+
+  bridge: {
+    background:   'rgba(201,151,58,0.06)',
+    borderRadius: 6,
+    padding:      '10px 12px',
+    marginTop:    10,
+  } as React.CSSProperties,
+
+  pt: {
+    display:      'flex',
+    gap:          14,
+    padding:      '16px 0',
+    borderBottom: '0.5px solid rgba(255,255,255,0.06)',
+  } as React.CSSProperties,
+
+  ptNum: {
+    fontFamily: SERIF,
+    fontSize:   28,
+    fontWeight: 700,
+    color:      'rgba(201,151,58,0.3)',
+    minWidth:   26,
+    lineHeight: '1.2',
+  } as React.CSSProperties,
+
+  app: {
+    background:   'rgba(201,151,58,0.05)',
+    borderRadius: 6,
+    padding:      '10px 12px',
+    marginTop:    10,
+  } as React.CSSProperties,
+
+  wordCard: {
+    background:   'rgba(255,255,255,0.03)',
+    border:       '0.5px solid rgba(255,255,255,0.08)',
+    borderRadius: 10,
+    padding:      '18px 20px',
+    marginBottom: 16,
+  } as React.CSSProperties,
+
+  word: {
+    fontFamily: SERIF,
+    fontSize:   26,
+    color:      GOLD,
+    fontWeight: 600,
+  } as React.CSSProperties,
+
+  preach: {
+    background:  'rgba(201,151,58,0.06)',
+    borderLeft:  '3px solid rgba(201,151,58,0.5)',
+    padding:     '10px 14px',
+    marginTop:   12,
+  } as React.CSSProperties,
+
+  archCard: {
+    background:   'rgba(255,255,255,0.03)',
+    border:       '0.5px solid rgba(255,255,255,0.08)',
+    borderRadius: 10,
+    padding:      '18px 20px',
+    marginBottom: 16,
+  } as React.CSSProperties,
+
+  sig: {
+    background:  'rgba(201,151,58,0.06)',
+    borderLeft:  '3px solid rgba(201,151,58,0.4)',
+    padding:     '10px 14px',
+    marginTop:   10,
+  } as React.CSSProperties,
+}
+
+// ─── Small reusable components ─────────────────────────────────────────────
 
 function Label({ text }: { text: string }) {
-  return <div style={{ fontSize:10, fontWeight:600, color:GOLD, textTransform:'uppercase' as const, letterSpacing:'1.2px', marginBottom:8, fontFamily:SANS }}>{text}</div>
+  return <div style={S.secTitle}>{text}</div>
 }
+
 function Body({ children }: { children: React.ReactNode }) {
-  return <p style={{ fontSize:14, color:PARCHMENT, lineHeight:1.85, margin:0, fontFamily:SANS }}>{children}</p>
+  return <p style={S.bodyTxt}>{children}</p>
 }
+
 function Sec({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div style={{ marginBottom:'1.75rem' }}>
+    <div style={{ marginBottom: '1.75rem' }}>
       <Label text={title} />
       {children}
     </div>
   )
 }
-function InfoBlock({ label, text }: { label: string; text?: string }) {
-  if (!text) return null
+
+function Info({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div style={{ borderLeft:'2px solid rgba(201,151,58,0.25)', paddingLeft:16, marginBottom:22 }}>
-      <Label text={label} />
-      <Body>{text}</Body>
-    </div>
-  )
-}
-function Highlight({ label, text }: { label: string; text?: string }) {
-  if (!text) return null
-  return (
-    <div style={{ background:'linear-gradient(135deg,rgba(201,151,58,0.08),rgba(201,151,58,0.03))', border:'1px solid rgba(201,151,58,0.18)', borderRadius:10, padding:'14px 18px', marginBottom:18 }}>
-      <Label text={label} />
-      <div style={{ fontFamily:SERIF, fontSize:16, color:PARCHMENT, fontStyle:'italic', lineHeight:1.65 }}>{text}</div>
-    </div>
-  )
-}
-function Pills({ items=[] }: { items?: string[] }) {
-  return (
-    <div style={{ display:'flex', flexWrap:'wrap', gap:8, marginTop:8 }}>
-      {items.map((r,i) => <span key={i} style={{ background:'rgba(255,255,255,0.04)', border:'0.5px solid rgba(255,255,255,0.1)', borderRadius:20, padding:'5px 14px', fontSize:12, color:SLATE, fontFamily:SANS }}>{r}</span>)}
-    </div>
-  )
-}
-function Card({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) {
-  return <div style={{ background:'rgba(255,255,255,0.03)', border:'0.5px solid rgba(255,255,255,0.08)', borderRadius:12, padding:20, marginBottom:14, ...style }}>{children}</div>
-}
-function PreachNote({ text }: { text?: string }) {
-  if (!text) return null
-  return (
-    <div style={{ background:'rgba(201,151,58,0.06)', border:'1px solid rgba(201,151,58,0.15)', borderRadius:8, padding:'12px 16px', marginTop:10 }}>
-      <Label text="Preaching Note" />
-      <Body>{text}</Body>
+    <div style={S.info}>
+      <div style={S.infoLabel}>{label}</div>
+      <p style={{ ...S.bodyTxt, margin: 0 }}>{children}</p>
     </div>
   )
 }
 
-function TabContent({ tab, data, bibleText, bibleVersion, setBibleVersion }: any) {
-  if (!data) return <TabSkeleton />
+function Hl({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div style={S.hl}>
+      <div style={S.hlLabel}>{label}</div>
+      <div style={S.hlText}>{children}</div>
+    </div>
+  )
+}
 
-  if (tab === 'overview') {
-    const o = data.overview || {}
-    return (
-      <div>
-        <Sec title="Summary"><Body>{o.summary}</Body></Sec>
-        <Sec title="Author's Purpose"><Body>{o.purpose}</Body></Sec>
-        <Sec title="Literary Genre"><Body>{o.literary_genre}</Body></Sec>
-        <Sec title="Literary Structure"><Body>{o.literary_structure}</Body></Sec>
-        <Sec title="Historical Setting"><Body>{o.setting}</Body></Sec>
-        <Sec title="Key Themes">
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(140px,1fr))', gap:8, marginTop:8 }}>
-            {(o.themes||[]).map((t:string,i:number) => <div key={i} style={{ background:'rgba(255,255,255,0.04)', border:'0.5px solid rgba(255,255,255,0.08)', borderRadius:8, padding:'10px 14px', fontSize:13, fontWeight:500, color:PARCHMENT, fontFamily:SANS }}>{t}</div>)}
+function DeepBanner({ tabId }: { tabId: string }) {
+  return (
+    <div style={S.deepBanner}>
+      <div style={{ width: 6, height: 6, borderRadius: '50%', background: PURPLE, flexShrink: 0 }} />
+      <span style={{ fontSize: 12, color: PURPLE }}>Deep Dive — {TAB_LABELS[tabId] || tabId}</span>
+    </div>
+  )
+}
+
+// ─── Tab content renderers ─────────────────────────────────────────────────
+
+function OverviewTab({ data }: { data: any }) {
+  const o = data?.overview
+  if (!o) return null
+  return (
+    <>
+      <Hl label="Main Idea">{o.main_idea}</Hl>
+      <Info label="Summary">{o.summary}</Info>
+      <Info label="Setting">{o.setting}</Info>
+      <Info label="Literary Structure">{o.literary_structure}</Info>
+      <Sec title="Key Themes">
+        <div style={S.themes}>
+          {(o.themes || []).map((t: string, i: number) => (
+            <div key={i} style={S.pill}>{t}</div>
+          ))}
+        </div>
+      </Sec>
+      <Sec title="Teaching Opportunities">
+        {(o.teaching_opportunities || []).map((t: string, i: number) => (
+          <Body key={i}>→ {t}</Body>
+        ))}
+      </Sec>
+    </>
+  )
+}
+
+function ScriptureTab({ data, bibleText, bibleVersion }: { data: any; bibleText: any; bibleVersion: string }) {
+  const s = data?.scripture
+  return (
+    <>
+      {bibleText && (
+        <div style={{ fontFamily: SERIF, fontSize: 14, lineHeight: 2.1, color: PARCHMENT, background: 'rgba(255,255,255,0.03)', border: '0.5px solid rgba(255,255,255,0.08)', borderRadius: 10, padding: '20px 22px', marginBottom: 20, whiteSpace: 'pre-wrap' }}>
+          {bibleText[bibleVersion] || bibleText.kjv}
+        </div>
+      )}
+      {s && (
+        <>
+          <Hl label="Key Verse">{s.key_verse}</Hl>
+          <Label text="Verse-by-Verse Notes" />
+          {(s.verse_by_verse || []).map((v: any, i: number) => (
+            <div key={i} style={{ ...S.info, borderBottom: i < s.verse_by_verse.length - 1 ? '0.5px solid rgba(255,255,255,0.06)' : 'none' }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: GOLD, marginBottom: 6, fontFamily: SERIF, fontStyle: 'italic' }}>{v.verse}</div>
+              <p style={{ ...S.bodyTxt, margin: 0 }}>{v.notes}</p>
+            </div>
+          ))}
+        </>
+      )}
+    </>
+  )
+}
+
+function LanguageTab({ data }: { data: any }) {
+  const words = data?.language || []
+  return (
+    <>
+      {words.map((w: any, i: number) => (
+        <div key={i} style={S.wordCard}>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 14, flexWrap: 'wrap' as const }}>
+            <span style={S.word}>{w.word}</span>
+            <span style={{ fontSize: 13, color: SLATE, fontStyle: 'italic' as const }}>{w.transliteration}</span>
+            <span style={{ fontSize: 11, color: SLATE, background: 'rgba(255,255,255,0.05)', border: '0.5px solid rgba(255,255,255,0.1)', borderRadius: 4, padding: '2px 8px' }}>{w.strongs}</span>
+            <span style={{ fontSize: 11, color: GOLD, background: 'rgba(201,151,58,0.08)', border: '1px solid rgba(201,151,58,0.2)', borderRadius: 4, padding: '2px 8px' }}>{w.pos}</span>
           </div>
+          {w.parsing && <div style={{ fontSize: 12, color: SLATE, background: 'rgba(255,255,255,0.03)', padding: '4px 10px', borderRadius: 4, display: 'inline-block', marginBottom: 12 }}>{w.parsing}</div>}
+          <Info label="Definition">{w.definition}</Info>
+          <Info label="Canonical Usage">{w.usage}</Info>
+          <Info label="Cognates">{w.cognates}</Info>
+          <div style={S.preach}>
+            <div style={{ fontSize: 10, color: GOLD, textTransform: 'uppercase' as const, letterSpacing: '1px', fontWeight: 600, marginBottom: 4 }}>Preaching Note</div>
+            <p style={{ ...S.bodyTxt, margin: 0 }}>{w.preaching_note}</p>
+          </div>
+        </div>
+      ))}
+    </>
+  )
+}
+
+function HistoryTab({ data }: { data: any }) {
+  const h = data?.history
+  if (!h) return null
+  return (
+    <>
+      {Object.entries(h).map(([key, val]: [string, any], i, arr) => (
+        <div key={key} style={{ ...S.info, borderBottom: i < arr.length - 1 ? '0.5px solid rgba(255,255,255,0.06)' : 'none' }}>
+          <div style={S.infoLabel}>{key.replace(/_/g, ' ')}</div>
+          <p style={{ ...S.bodyTxt, margin: 0 }}>{val}</p>
+        </div>
+      ))}
+    </>
+  )
+}
+
+function HermeneuticsTab({ data }: { data: any }) {
+  const h = data?.hermeneutics
+  if (!h) return null
+  return (
+    <>
+      <Info label="Genre Rules">{h.genre_rules}</Info>
+      <Info label="Authorial Intent">{h.authorial_intent}</Info>
+      <Info label="Context Levels">{h.context_levels}</Info>
+      <Sec title="Common Mistakes">
+        {(h.common_mistakes || []).map((m: string, i: number) => <Body key={i}>→ {m}</Body>)}
+      </Sec>
+      <Sec title="Key Questions">
+        {(h.key_questions || []).map((q: string, i: number) => <Body key={i}>{i + 1}. {q}</Body>)}
+      </Sec>
+      <Info label="Faithful Reading">{h.faithful_reading}</Info>
+      <Info label="Application Principles">{h.application_principles}</Info>
+      <Info label="Interpretive Tradition">{h.interpretive_tradition}</Info>
+    </>
+  )
+}
+
+function ChristTab({ data }: { data: any }) {
+  const c = data?.christ
+  if (!c) return null
+  return (
+    <>
+      <Hl label="Christological Title">{c.title}</Hl>
+      <Info label="Christ's Presence">{c.presence}</Info>
+      <Info label="Old Testament Foreshadowing">{c.foreshadowing}</Info>
+      <Info label="Fulfillment">{c.fulfillment}</Info>
+      <Info label="Gospel Thread">{c.gospel_thread}</Info>
+      <Info label="Path from Text to Christ">{c.christocentric_preaching}</Info>
+    </>
+  )
+}
+
+function TheologyTab({ data, isDeep }: { data: any; isDeep?: boolean }) {
+  const t = data?.theology
+  if (!t) return null
+  return (
+    <>
+      {isDeep && <DeepBanner tabId="theology" />}
+      <Info label="God">{t.god}</Info>
+      <Info label="Christology">{t.christ}</Info>
+      <Info label="Holy Spirit">{t.holy_spirit}</Info>
+      <Info label="Salvation">{t.salvation}</Info>
+      <Info label="Humanity">{t.humanity}</Info>
+      <Info label="Kingdom">{t.kingdom}</Info>
+      <Info label="Covenant">{t.covenant}</Info>
+      <Info label="Church">{t.church}</Info>
+      <Info label="Eschatology">{t.eschatology}</Info>
+      <Info label="Biblical Theology Arc">{t.biblical_theology}</Info>
+      <Info label="Systematic Connections">{t.systematic_connections}</Info>
+      {t.doctrinal_issues && (
+        <Sec title="Doctrinal Issues">
+          {t.doctrinal_issues.map((d: string, i: number) => <Body key={i}>→ {d}</Body>)}
         </Sec>
-        <Sec title="Teaching Opportunities">
-          {(o.teaching_opportunities||[]).map((t:string,i:number) => <div key={i} style={{ fontSize:14, color:PARCHMENT, padding:'6px 0', lineHeight:1.75, fontFamily:SANS }}>→ {t}</div>)}
+      )}
+    </>
+  )
+}
+
+function CrossRefsTab({ data }: { data: any }) {
+  const c = data?.crossrefs
+  if (!c) return null
+  const renderList = (items: string[], label: string) => items?.length > 0 && (
+    <Sec title={label}>
+      <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+        {items.map((r: string, i: number) => (
+          <li key={i} style={{ ...S.bodyTxt, padding: '6px 0', borderBottom: '0.5px solid rgba(255,255,255,0.05)', marginBottom: 0 }}>{r}</li>
+        ))}
+      </ul>
+    </Sec>
+  )
+  return (
+    <>
+      {renderList(c.direct, 'Direct References')}
+      {renderList(c.prophetic, 'Prophetic Connections')}
+      {renderList(c.typological, 'Typological Connections')}
+      {renderList(c.thematic, 'Thematic Connections')}
+      {renderList(c.parallel_passages, 'Parallel Passages')}
+      <Info label="Old Testament Backdrop">{c.ot_backdrop}</Info>
+      <Info label="NT Development">{c.nt_development}</Info>
+    </>
+  )
+}
+
+function ApologeticsTab({ data, isDeep }: { data: any; isDeep?: boolean }) {
+  const a = isDeep ? data?.apologetics_deep : data?.apologetics
+  if (!a) return null
+
+  if (isDeep) {
+    return (
+      <>
+        <DeepBanner tabId="apologetics_deep" />
+        <Info label="Manuscript Evidence">{a.manuscript_evidence}</Info>
+        <Info label="Historical Corroboration">{a.historical_corroboration}</Info>
+        <Info label="Source Criticism">{a.source_criticism}</Info>
+        <Sec title="Major Scholarly Objections">
+          {(a.major_scholarly_objections || []).map((obj: any, i: number) => (
+            <div key={i} style={S.card}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: PARCHMENT, marginBottom: 8 }}>{obj.objection}</div>
+              <div style={{ fontSize: 12, color: SLATE, marginBottom: 10 }}>{obj.scholar}</div>
+              <Info label="Response">{obj.evangelical_response}</Info>
+              {obj.remaining_tensions && <Info label="Remaining Tensions">{obj.remaining_tensions}</Info>}
+            </div>
+          ))}
         </Sec>
-      </div>
+        <Info label="Cumulative Case">{a.cumulative_case}</Info>
+        <Info label="What Critics Get Right">{a.what_critics_get_right}</Info>
+      </>
     )
   }
 
-  if (tab === 'scripture') {
-    const sc = data.scripture || {}
-    const bt = bibleText || {}
-    const versions = ['kjv','web','asv','ylt']
-    const labels: Record<string,string> = { kjv:'KJV', web:'WEB', asv:'ASV', ylt:'YLT' }
-    return (
-      <div>
-        <div style={{ display:'flex', gap:8, marginBottom:20, flexWrap:'wrap' }}>
-          {versions.map(v => (
-            <button key={v} onClick={() => setBibleVersion(v)} style={{ padding:'6px 18px', borderRadius:6, fontSize:12, fontWeight:600, cursor:'pointer', fontFamily:SANS, background:bibleVersion===v?GOLD:'none', color:bibleVersion===v?'#0D1117':SLATE, border:bibleVersion===v?'none':'1px solid rgba(255,255,255,0.1)' }}>{labels[v]}</button>
-          ))}
+  return (
+    <>
+      <Info label="Historical Reliability">{a.historical_reliability}</Info>
+      <Info label="Textual Criticism">{a.textual_criticism}</Info>
+      <Sec title="Critical Objections">
+        {(a.critical_objections || []).map((obj: any, i: number) => (
+          <div key={i} style={S.card}>
+            <div style={{ fontSize: 14, fontWeight: 600, color: PARCHMENT, marginBottom: 6 }}>{obj.objection}</div>
+            <div style={{ fontSize: 12, color: SLATE, marginBottom: 10 }}>Source: {obj.source}</div>
+            <Info label="Response">{obj.response}</Info>
+          </div>
+        ))}
+      </Sec>
+      <Info label="Philosophical Challenges">{a.philosophical_challenges}</Info>
+      <Sec title="Conversational Responses">
+        {(a.conversational_responses || []).map((r: string, i: number) => (
+          <Body key={i}>→ {r}</Body>
+        ))}
+      </Sec>
+      <Info label="What Critics Get Right">{a.what_critics_get_right}</Info>
+      <Info label="Strongest Evidence">{a.strongest_evidence}</Info>
+    </>
+  )
+}
+
+function IllustrationsTab({ data }: { data: any }) {
+  const items = data?.illustrations || []
+  return (
+    <>
+      {items.map((ill: any, i: number) => (
+        <div key={i} style={S.illus}>
+          <div style={S.illusCat}>{ill.category}</div>
+          <div style={{ fontSize: 14, fontWeight: 500, color: PARCHMENT, marginBottom: 10 }}>{ill.title}</div>
+          <div style={{ fontFamily: SERIF, fontSize: 14, color: PARCHMENT, fontStyle: 'italic' as const, lineHeight: 1.9, marginBottom: 12 }}>{ill.content}</div>
+          <div style={S.bridge}>
+            <div style={{ fontSize: 10, color: GOLD, textTransform: 'uppercase' as const, letterSpacing: '1px', fontWeight: 600, marginBottom: 4 }}>Bridge</div>
+            <p style={{ ...S.bodyTxt, margin: 0, fontSize: 13 }}>{ill.bridge}</p>
+          </div>
         </div>
-        {bt[bibleVersion] && (
-          <div style={{ fontFamily:SERIF, fontSize:15, lineHeight:2.2, color:PARCHMENT, background:'rgba(255,255,255,0.03)', border:'0.5px solid rgba(255,255,255,0.08)', borderRadius:12, padding:'24px 28px', marginBottom:20, whiteSpace:'pre-wrap' }}>{bt[bibleVersion]}</div>
-        )}
-        <div style={{ fontSize:11, color:'rgba(136,146,164,0.5)', marginBottom:24, fontStyle:'italic', fontFamily:SANS }}>KJV, WEB, ASV, and YLT are public domain translations.</div>
-        <Highlight label="Key Verse" text={sc.key_verse} />
-        {(sc.verse_by_verse||[]).length > 0 && (
-          <Sec title="Verse-by-Verse Exegetical Notes">
-            {sc.verse_by_verse.map((v:any,i:number) => (
-              <div key={i} style={{ borderBottom:'0.5px solid rgba(255,255,255,0.06)', paddingBottom:18, marginBottom:18 }}>
-                <div style={{ fontSize:12, fontWeight:600, color:GOLD, marginBottom:7, fontFamily:SERIF, fontStyle:'italic' }}>{v.verse}</div>
-                <Body>{v.notes}</Body>
-              </div>
+      ))}
+    </>
+  )
+}
+
+function OutlineTab({ data }: { data: any }) {
+  const o = data?.outline
+  if (!o) return null
+  return (
+    <>
+      <Hl label="Sermon Title">{o.title}</Hl>
+      <Hl label="Big Idea">{o.big_idea}</Hl>
+      <Info label="Introduction">{o.introduction}</Info>
+      {(o.points || []).map((pt: any, i: number) => (
+        <div key={i} style={{ ...S.pt, borderBottom: i < o.points.length - 1 ? '0.5px solid rgba(255,255,255,0.06)' : 'none' }}>
+          <div style={S.ptNum}>{i + 1}</div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 15, fontWeight: 600, color: PARCHMENT, marginBottom: 8 }}>{pt.point}</div>
+            {(pt.subpoints || []).map((s: string, j: number) => (
+              <div key={j} style={{ fontSize: 13, color: SLATE, lineHeight: 1.75, paddingLeft: 12, marginBottom: 4 }}>· {s}</div>
             ))}
-          </Sec>
-        )}
-      </div>
-    )
-  }
-
-  if (tab === 'language') {
-    return (
-      <div>
-        {(data.language||[]).map((w:any,i:number) => (
-          <Card key={i}>
-            <div style={{ display:'flex', alignItems:'baseline', gap:12, marginBottom:14, flexWrap:'wrap' }}>
-              <span style={{ fontFamily:SERIF, fontSize:26, color:GOLD, fontWeight:600 }}>{w.word}</span>
-              <span style={{ fontSize:13, color:SLATE, fontStyle:'italic', fontFamily:SANS }}>{w.transliteration}</span>
-              <span style={{ fontSize:11, color:SLATE, background:'rgba(255,255,255,0.05)', border:'0.5px solid rgba(255,255,255,0.1)', borderRadius:4, padding:'2px 8px', fontFamily:SANS }}>{w.strongs}</span>
-              {w.pos && <span style={{ fontSize:11, color:GOLD, background:'rgba(201,151,58,0.08)', border:'1px solid rgba(201,151,58,0.2)', borderRadius:4, padding:'2px 8px', fontFamily:SANS }}>{w.pos}</span>}
-            </div>
-            {w.parsing && <div style={{ fontSize:12, color:SLATE, marginBottom:12, background:'rgba(255,255,255,0.03)', padding:'4px 10px', borderRadius:4, display:'inline-block', fontFamily:SANS }}>{w.parsing}</div>}
-            <InfoBlock label="Definition" text={w.definition} />
-            <InfoBlock label="Usage Across Scripture" text={w.usage} />
-            {w.cognates && <InfoBlock label="Cognate Words" text={w.cognates} />}
-            <PreachNote text={w.preaching_note} />
-          </Card>
-        ))}
-      </div>
-    )
-  }
-
-  if (tab === 'history') {
-    const h = data.history || {}
-    return (
-      <div>
-        <InfoBlock label="Political Environment" text={h.political} />
-        <InfoBlock label="Religious Climate" text={h.religious} />
-        <InfoBlock label="Economic Conditions" text={h.economic} />
-        <InfoBlock label="Social Customs" text={h.social} />
-        <InfoBlock label="Geography" text={h.geographical} />
-        <InfoBlock label="What the Original Audience Understood" text={h.original_audience} />
-        <InfoBlock label="Modern Blind Spots" text={h.blind_spots} />
-        <InfoBlock label="Jewish Background" text={h.jewish_background} />
-        <InfoBlock label="Greco-Roman Context" text={h.greco_roman} />
-        <InfoBlock label="Marriage & Family Customs" text={h.marriage_family} />
-        <InfoBlock label="Intertestamental Background" text={h.intertestamental} />
-      </div>
-    )
-  }
-
-  if (tab === 'archaeology') {
-    return (
-      <div>
-        {(data.archaeology||[]).map((a:any,i:number) => (
-          <Card key={i}>
-            <div style={{ fontFamily:SERIF, fontSize:17, fontWeight:600, color:PARCHMENT, marginBottom:4 }}>{a.discovery}</div>
-            <div style={{ fontSize:11, color:SLATE, marginBottom:16, fontFamily:SANS }}>{a.location} · Found: {a.date_found}</div>
-            <InfoBlock label="Relevance to Passage" text={a.relevance} />
-            <InfoBlock label="Archaeological Details" text={a.details} />
-            <PreachNote text={a.significance} />
-          </Card>
-        ))}
-      </div>
-    )
-  }
-
-  if (tab === 'theology') {
-    const t = data.theology || {}
-    return (
-      <div>
-        <InfoBlock label="God — What This Reveals" text={t.god} />
-        <InfoBlock label="Christology" text={t.christ} />
-        <InfoBlock label="Holy Spirit" text={t.holy_spirit} />
-        <InfoBlock label="Salvation" text={t.salvation} />
-        <InfoBlock label="Humanity" text={t.humanity} />
-        <InfoBlock label="Kingdom of God" text={t.kingdom} />
-        <InfoBlock label="Covenant" text={t.covenant} />
-        <InfoBlock label="Church & Community" text={t.church} />
-        <InfoBlock label="Eschatology" text={t.eschatology} />
-        <InfoBlock label="Biblical Theology Arc" text={t.biblical_theology} />
-        <InfoBlock label="Systematic Connections" text={t.systematic_connections} />
-        <InfoBlock label="Practical Theology" text={t.practical_theology} />
-        {(t.doctrinal_issues||[]).length > 0 && (
-          <Sec title="Doctrinal Issues">
-            {t.doctrinal_issues.map((d:string,i:number) => <div key={i} style={{ fontSize:14, color:PARCHMENT, padding:'6px 0', lineHeight:1.7, fontFamily:SANS }}>→ {d}</div>)}
-          </Sec>
-        )}
-      </div>
-    )
-  }
-
-  if (tab === 'crossref') {
-    const cr = data.crossrefs || {}
-    return (
-      <div>
-        <Sec title="Direct References"><Pills items={cr.direct} /></Sec>
-        <Sec title="Prophetic Connections"><Pills items={cr.prophetic} /></Sec>
-        <Sec title="Typological Connections"><Pills items={cr.typological} /></Sec>
-        <Sec title="Thematic Parallels"><Pills items={cr.thematic} /></Sec>
-        <Sec title="Parallel Passages"><Pills items={cr.parallel_passages} /></Sec>
-        <InfoBlock label="Old Testament Backdrop" text={cr.ot_backdrop} />
-        <InfoBlock label="NT Development" text={cr.nt_development} />
-      </div>
-    )
-  }
-
-  if (tab === 'christ') {
-    const c = data.christ || {}
-    return (
-      <div>
-        <Highlight label="Christological Title" text={c.title} />
-        <InfoBlock label="Christ's Presence in This Text" text={c.presence} />
-        <InfoBlock label="Foreshadowing" text={c.foreshadowing} />
-        <InfoBlock label="Fulfillment" text={c.fulfillment} />
-        <InfoBlock label="Gospel Thread" text={c.gospel_thread} />
-        <InfoBlock label="Redemptive-Historical Location" text={c.redemptive_historical} />
-        <PreachNote text={c.christocentric_preaching} />
-      </div>
-    )
-  }
-
-  if (tab === 'commentary') {
-    const c = data.commentary || {}
-    return (
-      <div>
-        <InfoBlock label="Matthew Henry" text={c.matthew_henry} />
-        <InfoBlock label="Spurgeon" text={c.spurgeon} />
-        <InfoBlock label="Calvin" text={c.calvin} />
-        <InfoBlock label="Augustine" text={c.augustine} />
-        <InfoBlock label="Luther" text={c.luther} />
-        <InfoBlock label="Modern Reformed" text={c.modern_reformed} />
-        <InfoBlock label="Modern Evangelical Scholarship" text={c.modern_evangelical} />
-        <InfoBlock label="Where Commentators Agree" text={c.areas_of_agreement} />
-        <InfoBlock label="Where Commentators Disagree" text={c.areas_of_debate} />
-        <Highlight label="Best Insight from the Commentary Tradition" text={c.best_insight} />
-      </div>
-    )
-  }
-
-  if (tab === 'fathers') {
-    return (
-      <div>
-        <div style={{ fontSize:13, color:SLATE, marginBottom:20, lineHeight:1.7, fontFamily:SANS }}>What the early church said about this passage — voices from the first five centuries.</div>
-        {(data.church_fathers||[]).map((f:any,i:number) => (
-          <Card key={i}>
-            <div style={{ display:'flex', alignItems:'baseline', gap:10, marginBottom:10 }}>
-              <span style={{ fontFamily:SERIF, fontSize:16, fontWeight:600, color:PARCHMENT }}>{f.father}</span>
-              <span style={{ fontSize:11, color:SLATE, fontFamily:SANS }}>{f.dates}</span>
-            </div>
-            <div style={{ fontFamily:SERIF, fontSize:14, color:PARCHMENT, fontStyle:'italic', lineHeight:1.85, borderLeft:'3px solid rgba(201,151,58,0.4)', paddingLeft:14, marginBottom:12 }}>"{f.quote}"</div>
-            <Body>{f.context}</Body>
-          </Card>
-        ))}
-      </div>
-    )
-  }
-
-  if (tab === 'quotes') {
-    return (
-      <div>
-        {(data.quotes||[]).map((q:any,i:number) => (
-          <div key={i} style={{ borderBottom:'0.5px solid rgba(255,255,255,0.06)', paddingBottom:20, marginBottom:20 }}>
-            <div style={{ fontFamily:SERIF, fontSize:15, color:PARCHMENT, fontStyle:'italic', lineHeight:1.85, marginBottom:10 }}>"{q.quote}"</div>
-            <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:6 }}>
-              <span style={{ fontSize:13, fontWeight:600, color:GOLD, fontFamily:SANS }}>— {q.author}</span>
-              <span style={{ fontSize:12, color:SLATE, fontStyle:'italic', fontFamily:SANS }}>{q.source}</span>
-            </div>
-            <div style={{ fontSize:12, color:SLATE, lineHeight:1.6, fontFamily:SANS }}>{q.relevance}</div>
-          </div>
-        ))}
-      </div>
-    )
-  }
-
-  if (tab === 'books') {
-    const lc: Record<string,string> = { Beginner:'#1D9E75', Intermediate:GOLD, Advanced:'#B22222', Scholar:'#534AB7' }
-    const tag = process.env.NEXT_PUBLIC_AMAZON_TAG || 'passagelab-20'
-    return (
-      <div>
-        <div style={{ fontSize:13, color:SLATE, marginBottom:20, lineHeight:1.7, fontFamily:SANS }}>Curated resources for deeper study. Titles link to Amazon search.</div>
-        {(data.books||[]).map((b:any,i:number) => (
-          <Card key={i} style={{ display:'flex', gap:16, alignItems:'flex-start' }}>
-            <div style={{ width:4, flexShrink:0, alignSelf:'stretch', borderRadius:2, background:lc[b.level]||GOLD }} />
-            <div style={{ flex:1 }}>
-              <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:10, marginBottom:6, flexWrap:'wrap' }}>
-                <div>
-                  <a href={`https://www.amazon.com/s?k=${encodeURIComponent(b.title+' '+b.author)}&tag=${tag}`} target="_blank" rel="noopener noreferrer" style={{ fontFamily:SERIF, fontSize:15, fontWeight:600, color:GOLD, textDecoration:'none', marginBottom:2, display:'block' }}>{b.title} ↗</a>
-                  <div style={{ fontSize:12, color:SLATE, fontFamily:SANS }}>{b.author}</div>
-                </div>
-                <div style={{ display:'flex', gap:6, flexShrink:0 }}>
-                  <span style={{ fontSize:10, color:GOLD, background:'rgba(201,151,58,0.1)', border:'1px solid rgba(201,151,58,0.2)', borderRadius:4, padding:'2px 8px', fontFamily:SANS }}>{b.type}</span>
-                  <span style={{ fontSize:10, color:lc[b.level]||GOLD, background:'rgba(255,255,255,0.04)', border:'0.5px solid rgba(255,255,255,0.1)', borderRadius:4, padding:'2px 8px', fontFamily:SANS }}>{b.level}</span>
-                </div>
-              </div>
-              <Body>{b.description}</Body>
-            </div>
-          </Card>
-        ))}
-      </div>
-    )
-  }
-
-  if (tab === 'illustrations') {
-    return (
-      <div>
-        {(data.illustrations||[]).map((il:any,i:number) => (
-          <div key={i} style={{ borderLeft:'3px solid #C9973A', borderRadius:'0 12px 12px 0', background:'rgba(255,255,255,0.03)', padding:'18px 20px', marginBottom:16 }}>
-            <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:12, flexWrap:'wrap' }}>
-              <span style={{ fontSize:10, fontWeight:600, color:GOLD, textTransform:'uppercase' as const, letterSpacing:'1px', background:'rgba(201,151,58,0.1)', borderRadius:4, padding:'3px 10px', fontFamily:SANS }}>{il.category}</span>
-              <span style={{ fontSize:14, fontWeight:600, color:PARCHMENT, fontFamily:SANS }}>{il.title}</span>
-            </div>
-            <p style={{ fontSize:14, color:PARCHMENT, lineHeight:1.9, fontStyle:'italic', marginBottom:14, fontFamily:SERIF }}>{il.content}</p>
-            <div style={{ background:'rgba(201,151,58,0.06)', borderRadius:8, padding:'10px 14px' }}>
-              <Label text="Bridge to Passage" />
-              <Body>{il.bridge}</Body>
+            <div style={S.app}>
+              <div style={{ fontSize: 10, color: GOLD, textTransform: 'uppercase' as const, letterSpacing: '1px', fontWeight: 600, marginBottom: 4 }}>Application</div>
+              <p style={{ ...S.bodyTxt, margin: 0, fontSize: 13 }}>{pt.application}</p>
             </div>
           </div>
-        ))}
-      </div>
-    )
-  }
-
-  if (tab === 'news') {
-    return (
-      <div>
-        <div style={{ fontSize:13, color:SLATE, marginBottom:20, lineHeight:1.7, fontFamily:SANS }}>Recent scholarship, archaeological findings, and cultural developments relevant to this passage.</div>
-        {(data.news||[]).map((n:any,i:number) => (
-          <Card key={i}>
-            <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:10, flexWrap:'wrap' }}>
-              <span style={{ fontSize:10, fontWeight:600, color:GOLD, textTransform:'uppercase' as const, letterSpacing:'1px', background:'rgba(201,151,58,0.1)', borderRadius:4, padding:'3px 10px', fontFamily:SANS }}>{n.type}</span>
-              {n.date && <span style={{ fontSize:11, color:SLATE, fontFamily:SANS }}>{n.date}</span>}
-            </div>
-            <div style={{ fontFamily:SERIF, fontSize:16, fontWeight:600, color:PARCHMENT, marginBottom:4, lineHeight:1.5 }}>{n.headline}</div>
-            <div style={{ fontSize:11, color:SLATE, marginBottom:14, fontFamily:SANS }}>{n.source}</div>
-            <InfoBlock label="Why This Matters for Preaching" text={n.relevance} />
-            <Body>{n.summary}</Body>
-          </Card>
-        ))}
-      </div>
-    )
-  }
-
-  if (tab === 'outline') {
-    const ol = data.outline || {}
-    return (
-      <div>
-        <Highlight label="Sermon Title" text={ol.title} />
-        <Highlight label="Big Idea" text={ol.big_idea} />
-        <InfoBlock label="Introduction" text={ol.introduction} />
-        {(ol.points||[]).map((p:any,i:number) => (
-          <div key={i} style={{ display:'flex', gap:16, padding:'20px 0', borderBottom:'0.5px solid rgba(255,255,255,0.06)' }}>
-            <div style={{ fontFamily:SERIF, fontSize:32, fontWeight:700, color:'rgba(201,151,58,0.35)', minWidth:32, lineHeight:1.2 }}>{i+1}</div>
-            <div style={{ flex:1 }}>
-              <div style={{ fontSize:15, fontWeight:600, color:PARCHMENT, marginBottom:10, fontFamily:SANS }}>{p.point}</div>
-              {(p.subpoints||[]).map((sp:string,j:number) => <div key={j} style={{ fontSize:13, color:SLATE, lineHeight:1.75, paddingLeft:14, marginBottom:5, fontFamily:SANS }}>· {sp}</div>)}
-              {p.illustration && (
-                <div style={{ marginTop:12, background:'rgba(201,151,58,0.05)', borderRadius:8, padding:'10px 14px' }}>
-                  <Label text="Illustration" />
-                  <Body>{p.illustration}</Body>
-                </div>
-              )}
-              {p.application && (
-                <div style={{ marginTop:10 }}>
-                  <Label text="Application" />
-                  <Body>{p.application}</Body>
-                </div>
-              )}
-            </div>
-          </div>
-        ))}
-        <div style={{ marginTop:24 }}>
-          <InfoBlock label="Conclusion" text={ol.conclusion} />
-          <InfoBlock label="Invitation" text={ol.invitation} />
         </div>
-        <Sec title="Alternative Structures">
-          {(ol.alternative_structures||[]).map((a:string,i:number) => <div key={i} style={{ fontSize:14, color:PARCHMENT, padding:'7px 0', lineHeight:1.75, borderBottom:'0.5px solid rgba(255,255,255,0.05)', fontFamily:SANS }}>→ {a}</div>)}
-        </Sec>
-      </div>
-    )
-  }
+      ))}
+      <Info label="Conclusion">{o.conclusion}</Info>
+      {o.invitation && <Info label="Invitation">{o.invitation}</Info>}
+    </>
+  )
+}
 
-  if (tab === 'manuscript') {
-    const m = data.manuscript || {}
-    return (
-      <div>
-        {[['Introduction',m.intro],['Body',m.body],['Conclusion',m.conclusion]].map(([label,text]) => (
-          <div key={label as string} style={{ marginBottom:32 }}>
-            <Label text={label as string} />
-            <div style={{ fontFamily:SERIF, fontSize:15, lineHeight:2.2, color:PARCHMENT, background:'rgba(255,255,255,0.03)', border:'0.5px solid rgba(255,255,255,0.08)', borderRadius:12, padding:'24px 28px' }}>{text}</div>
+function SmallGroupTab({ data }: { data: any }) {
+  const sg = data?.smallgroup
+  if (!sg) return null
+  const typeColor: Record<string, string> = { Observation: '#60A5FA', Interpretation: GOLD, Application: '#34D399', Prayer: PURPLE }
+  return (
+    <>
+      <Hl label="Icebreaker">{sg.icebreaker}</Hl>
+      <Info label="Context Setter">{sg.context_setter}</Info>
+      <Sec title="Discussion Questions">
+        {(sg.questions || []).map((q: any, i: number) => (
+          <div key={i} style={{ background: 'rgba(255,255,255,0.03)', border: '0.5px solid rgba(255,255,255,0.08)', borderRadius: 8, padding: '12px 14px', marginBottom: 8 }}>
+            <div style={{ fontSize: 10, color: typeColor[q.type] || SLATE, textTransform: 'uppercase' as const, letterSpacing: '0.8px', fontWeight: 600, marginBottom: 4 }}>{q.type}</div>
+            <p style={{ ...S.bodyTxt, margin: 0 }}>{q.question}</p>
           </div>
         ))}
-      </div>
-    )
-  }
+      </Sec>
+      {sg.activity && <Info label="Group Activity">{sg.activity}</Info>}
+      <Hl label="Weekly Takeaway">{sg.takeaway}</Hl>
+    </>
+  )
+}
 
-  if (tab === 'smallgroup') {
-    const sg = data.smallgroup || {}
-    return (
-      <div>
-        <Highlight label="Icebreaker" text={sg.icebreaker} />
-        {sg.context_setter && <InfoBlock label="Context Setter" text={sg.context_setter} />}
-        <Sec title="Discussion Questions">
-          {(sg.questions||[]).map((q:any,i:number) => (
-            <div key={i} style={{ background:'rgba(255,255,255,0.03)', border:'0.5px solid rgba(255,255,255,0.08)', borderRadius:10, padding:'14px 18px', marginBottom:10 }}>
-              <Label text={q.type} />
-              <Body>{q.question}</Body>
+function YouthTab({ data }: { data: any }) {
+  const y = data?.youth
+  if (!y) return null
+  return (
+    <>
+      <Hl label="Big Truth">{y.big_truth}</Hl>
+      <Info label="Cultural Hook">{y.cultural_hook}</Info>
+      {y.game && <Info label={`Game: ${y.game.name}`}>{y.game.instructions} — {y.game.connection}</Info>}
+      {y.object_lesson && <Info label={`Object Lesson: ${y.object_lesson.object}`}>{y.object_lesson.lesson}</Info>}
+      <Sec title="Discussion Questions">
+        {(y.discussion_questions || []).map((q: string, i: number) => <Body key={i}>{i + 1}. {q}</Body>)}
+      </Sec>
+      <Info label="Weekly Challenge">{y.challenge}</Info>
+      <Hl label="Memory Verse">{y.memory_verse}</Hl>
+    </>
+  )
+}
+
+function ChildrenTab({ data }: { data: any }) {
+  const c = data?.children
+  if (!c) return null
+  return (
+    <>
+      <Hl label="Big Truth">{c.big_truth}</Hl>
+      <Hl label="Memory Verse">{c.memory_verse}</Hl>
+      <Info label="Story Retelling">{c.story_retelling}</Info>
+      {c.object_lesson && <Info label={`Object Lesson: ${c.object_lesson.object}`}>{c.object_lesson.lesson}</Info>}
+      {c.craft_idea && <Info label="Craft Idea">{c.craft_idea}</Info>}
+      {c.activity && <Info label="Activity">{c.activity}</Info>}
+      {c.snack_idea && <Info label="Snack Idea">{c.snack_idea}</Info>}
+      <Sec title="Discussion Questions">
+        {(c.discussion_questions || []).map((q: string, i: number) => <Body key={i}>{i + 1}. {q}</Body>)}
+      </Sec>
+      <Info label="Parent Connection">{c.parent_connection}</Info>
+    </>
+  )
+}
+
+function EssayOutlineTab({ data }: { data: any }) {
+  const e = data?.essay_outline
+  if (!e) return null
+  return (
+    <>
+      <Hl label="Suggested Title">{e.suggested_title}</Hl>
+      <Hl label="Thesis">{e.thesis}</Hl>
+      <Info label="Abstract">{e.abstract}</Info>
+      <Sec title="Paper Structure">
+        {(e.sections || []).map((s: any, i: number) => (
+          <div key={i} style={S.card}>
+            <div style={{ fontSize: 14, fontWeight: 600, color: GOLD, marginBottom: 6 }}>{s.section}</div>
+            <p style={{ ...S.bodyTxt, margin: 0 }}>{s.content}</p>
+          </div>
+        ))}
+      </Sec>
+      <Sec title="Key Arguments">
+        {(e.key_arguments || []).map((a: string, i: number) => <Body key={i}>{i + 1}. {a}</Body>)}
+      </Sec>
+      <Info label="Research Starting Points">{(e.research_starting_points || []).join(' · ')}</Info>
+    </>
+  )
+}
+
+function CommentaryTab({ data }: { data: any }) {
+  const c = data?.commentary
+  if (!c) return null
+  const scholars = [
+    ['Matthew Henry', c.matthew_henry],
+    ['Spurgeon', c.spurgeon],
+    ['Calvin', c.calvin],
+    ['Augustine', c.augustine],
+    ['Luther', c.luther],
+    ['Modern Reformed', c.modern_reformed],
+    ['Modern Evangelical', c.modern_evangelical],
+  ]
+  return (
+    <>
+      <DeepBanner tabId="commentary" />
+      {scholars.filter(([, v]) => v).map(([name, val]: any, i) => (
+        <Info key={i} label={name}>{val}</Info>
+      ))}
+      <Info label="Areas of Agreement">{c.areas_of_agreement}</Info>
+      <Info label="Areas of Debate">{c.areas_of_debate}</Info>
+      <Hl label="Best Single Insight">{c.best_insight}</Hl>
+    </>
+  )
+}
+
+function FathersTab({ data }: { data: any }) {
+  const fathers = data?.church_fathers || []
+  return (
+    <>
+      <DeepBanner tabId="fathers" />
+      {fathers.map((f: any, i: number) => (
+        <div key={i} style={S.card}>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 12 }}>
+            <span style={{ fontFamily: SERIF, fontSize: 16, fontWeight: 600, color: PARCHMENT }}>{f.father}</span>
+            <span style={{ fontSize: 11, color: SLATE }}>{f.dates}</span>
+            {f.tradition && <span style={{ fontSize: 11, color: SLATE }}>{f.tradition}</span>}
+          </div>
+          <div style={{ fontFamily: SERIF, fontSize: 14, color: PARCHMENT, fontStyle: 'italic' as const, lineHeight: 1.85, borderLeft: `3px solid rgba(201,151,58,0.4)`, paddingLeft: 16, marginBottom: 14 }}>{f.quote}</div>
+          <p style={{ ...S.bodyTxt, margin: 0 }}>{f.context}</p>
+        </div>
+      ))}
+    </>
+  )
+}
+
+function ArchaeologyTab({ data }: { data: any }) {
+  const items = data?.archaeology || []
+  return (
+    <>
+      <DeepBanner tabId="archaeology" />
+      {items.map((a: any, i: number) => (
+        <div key={i} style={S.archCard}>
+          <div style={{ fontFamily: SERIF, fontSize: 17, fontWeight: 600, color: PARCHMENT, marginBottom: 4 }}>{a.discovery}</div>
+          <div style={{ fontSize: 11, color: SLATE, marginBottom: 14 }}>{a.location} · {a.date_found}</div>
+          <Info label="Relevance">{a.relevance}</Info>
+          <Info label="Details">{a.details}</Info>
+          <div style={S.sig}>
+            <div style={{ fontSize: 10, color: GOLD, textTransform: 'uppercase' as const, letterSpacing: '1px', fontWeight: 600, marginBottom: 4 }}>For Preachers</div>
+            <p style={{ ...S.bodyTxt, margin: 0 }}>{a.significance}</p>
+          </div>
+        </div>
+      ))}
+    </>
+  )
+}
+
+function BooksTab({ data }: { data: any }) {
+  const books = data?.books || []
+  const levelColor: Record<string, string> = {
+    Beginner:     '#34D399',
+    Intermediate: GOLD,
+    Advanced:     '#60A5FA',
+    Scholar:      PURPLE,
+  }
+  return (
+    <>
+      <DeepBanner tabId="books" />
+      {books.map((b: any, i: number) => (
+        <div key={i} style={{ display: 'flex', gap: 16, alignItems: 'flex-start', ...S.card }}>
+          <div style={{ width: 4, flexShrink: 0, alignSelf: 'stretch', borderRadius: 2, background: levelColor[b.level] || SLATE }} />
+          <div style={{ flex: 1 }}>
+            <div style={{ fontFamily: SERIF, fontSize: 15, fontWeight: 600, color: GOLD, marginBottom: 4 }}>{b.title}</div>
+            <div style={{ fontSize: 12, color: SLATE, marginBottom: 10 }}>{b.author}</div>
+            <p style={{ ...S.bodyTxt, marginBottom: 12 }}>{b.description}</p>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' as const }}>
+              <span style={{ fontSize: 10, color: levelColor[b.level] || SLATE, background: `${levelColor[b.level] || SLATE}18`, border: `1px solid ${levelColor[b.level] || SLATE}40`, borderRadius: 4, padding: '2px 8px' }}>{b.level}</span>
+              <span style={{ fontSize: 10, color: SLATE, background: 'rgba(255,255,255,0.04)', border: '0.5px solid rgba(255,255,255,0.1)', borderRadius: 4, padding: '2px 8px' }}>{b.type}</span>
+            </div>
+          </div>
+        </div>
+      ))}
+    </>
+  )
+}
+
+function CitationsTab({ data }: { data: any }) {
+  const c = data?.citations
+  if (!c) return null
+  return (
+    <>
+      <DeepBanner tabId="citations" />
+      <div style={{ ...S.deepBanner, background: 'rgba(251,191,36,0.06)', border: '0.5px solid rgba(251,191,36,0.2)', marginBottom: 20 }}>
+        <span style={{ fontSize: 12, color: '#FBBF24' }}>⚠ {c.disclaimer}</span>
+      </div>
+      {c.commentaries?.length > 0 && (
+        <Sec title="Commentaries">
+          {c.commentaries.map((r: any, i: number) => (
+            <div key={i} style={S.card}>
+              <div style={{ fontFamily: SERIF, fontSize: 14, fontWeight: 600, color: PARCHMENT, marginBottom: 4 }}>{r.title}</div>
+              <div style={{ fontSize: 12, color: SLATE, marginBottom: 10 }}>{r.author_first} {r.author_last} · {r.publisher}, {r.year}</div>
+              <div style={{ fontSize: 12, color: SLATE, marginBottom: 4 }}><span style={{ color: GOLD }}>SBL:</span> {r.sbl}</div>
+              <div style={{ fontSize: 12, color: SLATE }}><span style={{ color: GOLD }}>Turabian:</span> {r.turabian}</div>
             </div>
           ))}
         </Sec>
-        <InfoBlock label="Group Activity" text={sg.activity} />
-        {(sg.deeper_study||[]).length > 0 && <Sec title="For Deeper Study">{sg.deeper_study.map((d:string,i:number) => <div key={i} style={{ fontSize:14, color:PARCHMENT, padding:'5px 0', lineHeight:1.7, fontFamily:SANS }}>→ {d}</div>)}</Sec>}
-        <Highlight label="Key Takeaway" text={sg.takeaway} />
+      )}
+      {c.free_online_resources?.length > 0 && (
+        <Sec title="Free Online Resources">
+          {c.free_online_resources.map((r: any, i: number) => (
+            <div key={i} style={{ ...S.info, borderBottom: '0.5px solid rgba(255,255,255,0.06)' }}>
+              <a href={r.url} target="_blank" rel="noopener noreferrer" style={{ color: GOLD, fontWeight: 600, marginBottom: 4, display: 'block' }}>{r.name} ↗</a>
+              <p style={{ ...S.bodyTxt, margin: 0, fontSize: 13 }}>{r.description}</p>
+            </div>
+          ))}
+        </Sec>
+      )}
+    </>
+  )
+}
+
+// ─── Tab content router ────────────────────────────────────────────────────
+
+function TabContent({ tabId, data, bibleText, bibleVersion }: {
+  tabId: string
+  data:  Record<string, unknown> | null
+  bibleText: any
+  bibleVersion: string
+}) {
+  if (!data) return null
+  switch (tabId) {
+    case 'overview':        return <OverviewTab data={data} />
+    case 'scripture':       return <ScriptureTab data={data} bibleText={bibleText} bibleVersion={bibleVersion} />
+    case 'language':        return <LanguageTab data={data} />
+    case 'history':         return <HistoryTab data={data} />
+    case 'hermeneutics':    return <HermeneuticsTab data={data} />
+    case 'christ':          return <ChristTab data={data} />
+    case 'theology':        return <TheologyTab data={data} />
+    case 'crossrefs':       return <CrossRefsTab data={data} />
+    case 'apologetics':     return <ApologeticsTab data={data} />
+    case 'apologetics_deep':return <ApologeticsTab data={data} isDeep />
+    case 'illustrations':   return <IllustrationsTab data={data} />
+    case 'outline':         return <OutlineTab data={data} />
+    case 'smallgroup':      return <SmallGroupTab data={data} />
+    case 'youth':           return <YouthTab data={data} />
+    case 'children':        return <ChildrenTab data={data} />
+    case 'essayoutline':    return <EssayOutlineTab data={data} />
+    case 'commentary':      return <CommentaryTab data={data} />
+    case 'fathers':         return <FathersTab data={data} />
+    case 'archaeology':     return <ArchaeologyTab data={data} />
+    case 'books':           return <BooksTab data={data} />
+    case 'citations':       return <CitationsTab data={data} />
+    default:                return <pre style={{ color: PARCHMENT, fontSize: 12 }}>{JSON.stringify(data, null, 2)}</pre>
+  }
+}
+
+// ─── Tab button ────────────────────────────────────────────────────────────
+
+function TabButton({ tabId, status, isDeep, isActive, onClick, cached }: {
+  tabId:    string
+  status:   TabStatus
+  isDeep:   boolean
+  isActive: boolean
+  onClick:  () => void
+  cached:   boolean
+}) {
+  const activeColor = isDeep ? PURPLE : GOLD
+  const color = isActive ? activeColor : status === 'done' ? (isDeep ? '#8B7CF8' : '#B8892A') : SLATE
+
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        padding:       '11px 15px',
+        fontSize:      13,
+        fontWeight:    500,
+        color,
+        cursor:        'pointer',
+        border:        'none',
+        borderBottom:  isActive ? `2px solid ${activeColor}` : '2px solid transparent',
+        whiteSpace:    'nowrap' as const,
+        background:    'none',
+        transition:    'color 0.2s',
+        display:       'flex',
+        alignItems:    'center',
+        gap:           5,
+        fontFamily:    SANS,
+        opacity:       status === 'generating' ? 0.7 : 1,
+      }}
+    >
+      {isDeep && <span style={{ width: 5, height: 5, borderRadius: '50%', background: isActive ? PURPLE : '#6B7A9F', flexShrink: 0, display: 'inline-block' }} />}
+      {status === 'generating' && <span style={{ width: 10, height: 10, border: `2px solid ${activeColor}`, borderTopColor: 'transparent', borderRadius: '50%', display: 'inline-block', animation: 'spin 0.8s linear infinite' }} />}
+      {status === 'done' && cached && <span title="Served from cache" style={{ fontSize: 9, color: activeColor }}>⚡</span>}
+      {TAB_LABELS[tabId] || tabId}
+      {status === 'idle' && <span style={{ fontSize: 10, color: SLATE }}>+</span>}
+    </button>
+  )
+}
+
+// ─── Idle tab placeholder ──────────────────────────────────────────────────
+
+function IdlePlaceholder({ tabId, onGenerate, isDeep }: {
+  tabId:       string
+  onGenerate:  () => void
+  isDeep:      boolean
+}) {
+  const color = isDeep ? PURPLE : GOLD
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column' as const, alignItems: 'center', justifyContent: 'center', padding: '80px 24px', textAlign: 'center' as const }}>
+      <div style={{ fontSize: 32, marginBottom: 16, opacity: 0.3 }}>
+        {isDeep ? '🔬' : '📖'}
       </div>
-    )
+      <div style={{ fontFamily: SERIF, fontSize: 18, color: PARCHMENT, marginBottom: 8 }}>
+        {TAB_LABELS[tabId] || tabId}
+      </div>
+      <div style={{ fontSize: 14, color: SLATE, marginBottom: 24, maxWidth: 300 }}>
+        {isDeep ? 'Deep Dive content — click to generate a full scholarly analysis' : 'Click to generate this section of your study'}
+      </div>
+      <button
+        onClick={onGenerate}
+        style={{
+          background:   color,
+          color:        INK,
+          border:       'none',
+          borderRadius: 8,
+          padding:      '12px 28px',
+          fontSize:     14,
+          fontWeight:   600,
+          cursor:       'pointer',
+          fontFamily:   SANS,
+        }}
+      >
+        Generate {isDeep ? `Deep Dive` : 'Study'} {isDeep ? '($2)' : '($1)'}
+      </button>
+    </div>
+  )
+}
+
+// ─── Main page ─────────────────────────────────────────────────────────────
+
+export default function StudyPage() {
+  const params       = useParams()
+  const searchParams = useSearchParams()
+  const passage      = decodeURIComponent(params.passage as string)
+  const rolesParam   = searchParams.get('roles') || 'pastor'
+  const roles        = rolesParam.split(',').filter(Boolean) as Role[]
+
+  const { quick: quickTabs, deep: deepTabs } = getTabsForRoles(roles)
+  const allTabs = [...quickTabs, ...deepTabs]
+
+  const [tabStates, setTabStates]     = useState<Record<string, TabState>>({})
+  const [bibleText, setBibleText]     = useState<any>(null)
+  const [bibleVersion, setBibleVersion] = useState('kjv')
+  const [activeTab, setActiveTab]     = useState('')
+  const hasInit                        = useRef(false)
+
+  // Auto-generate Overview + Scripture on load
+  useEffect(() => {
+    if (hasInit.current) return
+    hasInit.current = true
+    generateTab('overview')
+    generateTab('scripture')
+    setActiveTab('overview')
+  }, [])
+
+  async function generateTab(tabId: string) {
+    setTabStates(prev => ({
+      ...prev,
+      [tabId]: { status: 'generating', data: null, cached: false }
+    }))
+
+    try {
+      const res = await fetch('/api/tab', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ passage, roles, tabId }),
+      })
+
+      const json = await res.json()
+
+      if (!res.ok) {
+        setTabStates(prev => ({
+          ...prev,
+          [tabId]: { status: 'error', data: null, cached: false }
+        }))
+        return
+      }
+
+      // Extract bible text from scripture response
+      if (tabId === 'scripture' && json.bibleText) {
+        setBibleText(json.bibleText)
+      }
+
+      setTabStates(prev => ({
+        ...prev,
+        [tabId]: { status: 'done', data: json.data, cached: json.cached }
+      }))
+    } catch {
+      setTabStates(prev => ({
+        ...prev,
+        [tabId]: { status: 'error', data: null, cached: false }
+      }))
+    }
   }
 
-  if (tab === 'youth') {
-    const y = data.youth || {}
-    return (
-      <div>
-        <Highlight label="The Big Truth" text={y.big_truth} />
-        <InfoBlock label="Cultural Hook" text={y.cultural_hook} />
-        <InfoBlock label="Memory Verse" text={y.memory_verse} />
-        {y.game && <Card><Label text="Opening Game" /><Body>{y.game}</Body></Card>}
-        {y.object_lesson && <Card><div style={{ fontFamily:SERIF, fontSize:15, fontWeight:600, color:PARCHMENT, marginBottom:8 }}>Object Lesson: {y.object_lesson.object}</div><Body>{y.object_lesson.lesson}</Body></Card>}
-        <Sec title="Discussion Questions">{(y.discussion_questions||[]).map((q:string,i:number) => <div key={i} style={{ background:'rgba(255,255,255,0.03)', border:'0.5px solid rgba(255,255,255,0.08)', borderRadius:10, padding:'12px 16px', marginBottom:8 }}><Body>{q}</Body></div>)}</Sec>
-        <InfoBlock label="Weekly Challenge" text={y.challenge} />
-      </div>
-    )
+  function handleTabClick(tabId: string) {
+    setActiveTab(tabId)
+    const state = tabStates[tabId]
+    if (!state || state.status === 'idle') {
+      generateTab(tabId)
+    }
   }
 
-  if (tab === 'children') {
-    const ch = data.children || {}
-    return (
-      <div>
-        <Highlight label="The Big Truth (Ages 6–10)" text={ch.big_truth} />
-        <InfoBlock label="Memory Verse" text={ch.memory_verse} />
-        {ch.story_retelling && <Sec title="Story Retelling"><div style={{ fontFamily:SERIF, fontSize:15, lineHeight:2.1, color:PARCHMENT, fontStyle:'italic' }}>{ch.story_retelling}</div></Sec>}
-        {ch.object_lesson && <Card><div style={{ fontFamily:SERIF, fontSize:15, fontWeight:600, color:PARCHMENT, marginBottom:8 }}>Object Lesson: {ch.object_lesson.object}</div><Body>{ch.object_lesson.lesson}</Body></Card>}
-        <InfoBlock label="Craft Idea" text={ch.craft_idea} />
-        <InfoBlock label="Activity / Game" text={ch.activity} />
-        <InfoBlock label="Snack Idea" text={ch.snack_idea} />
-        {(ch.discussion_questions||[]).length > 0 && <Sec title="Discussion Questions">{ch.discussion_questions.map((q:string,i:number) => <div key={i} style={{ background:'rgba(255,255,255,0.03)', border:'0.5px solid rgba(255,255,255,0.08)', borderRadius:10, padding:'12px 16px', marginBottom:8 }}><Body>{q}</Body></div>)}</Sec>}
-        <Highlight label="Parent Connection" text={ch.parent_connection} />
-      </div>
-    )
-  }
+  const activeState  = tabStates[activeTab]
+  const isDeepActive = deepTabs.includes(activeTab)
 
-  return null
+  // This month's spend — placeholder until auth is wired
+  const studiesDone = Object.values(tabStates).filter(s => s.status === 'done').length
+
+  return (
+    <div style={S.page}>
+      <style>{`@keyframes spin { to { transform: rotate(360deg) } } button:hover { opacity: 0.85 }`}</style>
+
+      {/* Nav */}
+      <nav style={S.nav}>
+        <div style={S.logo}>
+          Passage<span style={{ color: GOLD }}>Lab</span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{ fontFamily: SERIF, fontSize: 14, fontStyle: 'italic' as const, color: PARCHMENT }}>{passage}</span>
+          {roles.map(r => (
+            <span key={r} style={S.badge(GOLD)}>{r.charAt(0).toUpperCase() + r.slice(1)}</span>
+          ))}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <span style={{ fontSize: 12, color: SLATE }}>
+            {Object.values(tabStates).filter(s => s.status === 'generating').length > 0 ? 'Generating…' : `${Object.values(tabStates).filter(s => s.status === 'done').length} tabs ready`}
+          </span>
+        </div>
+      </nav>
+
+      {/* Quick Study tabs */}
+      <div style={{ borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+        <div style={S.tabRowLabel}>Quick Study</div>
+        <div style={S.tabRow}>
+          {quickTabs.map(tabId => (
+            <TabButton
+              key={tabId}
+              tabId={tabId}
+              status={tabStates[tabId]?.status || 'idle'}
+              isDeep={false}
+              isActive={activeTab === tabId}
+              cached={tabStates[tabId]?.cached || false}
+              onClick={() => handleTabClick(tabId)}
+            />
+          ))}
+        </div>
+
+        {/* Deep Dive tabs */}
+        {deepTabs.length > 0 && (
+          <>
+            <div style={S.tabRowLabel}>Deep Dive</div>
+            <div style={S.tabRow}>
+              {deepTabs.map(tabId => (
+                <TabButton
+                  key={tabId}
+                  tabId={tabId}
+                  status={tabStates[tabId]?.status || 'idle'}
+                  isDeep={true}
+                  isActive={activeTab === tabId}
+                  cached={tabStates[tabId]?.cached || false}
+                  onClick={() => handleTabClick(tabId)}
+                />
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* Content */}
+      <div style={S.content}>
+        {/* Generating spinner */}
+        {activeState?.status === 'generating' && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '40px 0' }}>
+            <div style={{ width: 20, height: 20, border: `2px solid ${isDeepActive ? PURPLE : GOLD}`, borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+            <span style={{ color: SLATE, fontSize: 14 }}>
+              {isDeepActive ? 'Running deep analysis…' : 'Generating study content…'}
+            </span>
+          </div>
+        )}
+
+        {/* Error state */}
+        {activeState?.status === 'error' && (
+          <div style={{ padding: '40px 0', textAlign: 'center' as const }}>
+            <div style={{ color: '#F87171', marginBottom: 16 }}>Generation failed. Please try again.</div>
+            <button
+              onClick={() => generateTab(activeTab)}
+              style={{ background: GOLD, color: INK, border: 'none', borderRadius: 8, padding: '10px 24px', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}
+            >
+              Retry
+            </button>
+          </div>
+        )}
+
+        {/* Idle state — not yet generated */}
+        {(!activeState || activeState.status === 'idle') && activeTab && (
+          <IdlePlaceholder
+            tabId={activeTab}
+            onGenerate={() => generateTab(activeTab)}
+            isDeep={isDeepActive}
+          />
+        )}
+
+        {/* No tab selected */}
+        {!activeTab && (
+          <div style={{ padding: '60px 0', textAlign: 'center' as const, color: SLATE }}>
+            Select a tab above to begin your study
+          </div>
+        )}
+
+        {/* Done — render content */}
+        {activeState?.status === 'done' && activeState.data && (
+          <>
+            {activeState.cached && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 16 }}>
+                <span style={{ fontSize: 11, color: GOLD }}>⚡</span>
+                <span style={{ fontSize: 11, color: SLATE }}>Served from PassageLab library — instant</span>
+              </div>
+            )}
+            <TabContent
+              tabId={activeTab}
+              data={activeState.data}
+              bibleText={bibleText}
+              bibleVersion={bibleVersion}
+            />
+          </>
+        )}
+      </div>
+    </div>
+  )
 }
