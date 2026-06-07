@@ -1,5 +1,5 @@
 // PassageLab — app/api/tab/route.ts
-// Single-tab on-demand generation with caching and Haiku routing
+// Single-tab on-demand generation with Anthropic prompt caching + Haiku routing
 
 import { NextRequest, NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
@@ -26,26 +26,39 @@ import {
 
 export const maxDuration = 60
 
+// Prompt caching enabled via beta header
+// Cached tokens cost 90% less than regular input tokens
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY!,
+  defaultHeaders: {
+    'anthropic-beta': 'prompt-caching-2024-07-31',
+  },
 })
 
 const SONNET = 'claude-sonnet-4-6'
 const HAIKU  = 'claude-haiku-4-5-20251001'
 
-// Cost estimates per 1K tokens (for internal tracking only)
+// Cost per 1K tokens — cache_read is 90% cheaper than regular input
 const COSTS = {
-  sonnet: { input: 0.003,   output: 0.015   },
-  haiku:  { input: 0.00025, output: 0.00125 },
+  sonnet: { input: 0.003,   output: 0.015,   cache_write: 0.00375, cache_read: 0.0003  },
+  haiku:  { input: 0.00025, output: 0.00125, cache_write: 0.0003,  cache_read: 0.00003 },
 }
 
 function estimateCost(
   model: 'sonnet' | 'haiku',
   inputTokens: number,
-  outputTokens: number
+  outputTokens: number,
+  cacheReadTokens: number = 0,
+  cacheWriteTokens: number = 0
 ): number {
   const c = COSTS[model]
-  return (inputTokens * c.input / 1000) + (outputTokens * c.output / 1000)
+  const regularInput = inputTokens - cacheReadTokens - cacheWriteTokens
+  return (
+    (Math.max(0, regularInput) * c.input       / 1000) +
+    (outputTokens              * c.output      / 1000) +
+    (cacheReadTokens           * c.cache_read  / 1000) +
+    (cacheWriteTokens          * c.cache_write / 1000)
+  )
 }
 
 // ─── Route handler ─────────────────────────────────────────────────────────
@@ -82,7 +95,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // ── Cache check ───────────────────────────────────────────────────────
+    // ── Supabase cache check ──────────────────────────────────────────────
     const cached = await getCachedTab(passage, roles, tabId)
     if (cached) {
       incrementCacheHit(passage, roles, tabId).catch(() => {})
@@ -129,21 +142,52 @@ export async function POST(req: NextRequest) {
     const model     = modelKey === 'sonnet' ? SONNET : HAIKU
     const maxTokens = getTabTokens(tabId)
 
-    // ── API call ──────────────────────────────────────────────────────────
+    // ── Bible text for caching ────────────────────────────────────────────
+    // The KJV text is the primary passage reference injected into prompts
+    const bibleBlock = bibleText.kjv
+      ? `Passage: "${passage}"\nText (KJV): ${bibleText.kjv}`
+      : `Passage: "${passage}"`
+
+    // ── API call with prompt caching ──────────────────────────────────────
+    // cache_control marks blocks that Anthropic should cache between calls.
+    // The system prompt and Bible text are identical across all tabs in a
+    // study session — marking them ephemeral caches them for ~5 minutes,
+    // saving 90% on those input tokens for every subsequent tab call.
     const response = await anthropic.messages.create({
       model,
       max_tokens: maxTokens,
+      system: [
+        {
+          type: 'text',
+          text: SYSTEM_PROMPT,
+          // @ts-ignore — prompt caching beta field
+          cache_control: { type: 'ephemeral' },
+        }
+      ],
       messages: [
         {
-          role:    'user',
-          content: `${SYSTEM_PROMPT}\n\n${tabPrompt}`,
+          role: 'user',
+          content: [
+            {
+              // Bible text block — cached across all tabs for this passage
+              type: 'text',
+              text: bibleBlock,
+              // @ts-ignore — prompt caching beta field
+              cache_control: { type: 'ephemeral' },
+            },
+            {
+              // Tab-specific prompt — NOT cached (unique per tab)
+              type: 'text',
+              text: tabPrompt,
+            }
+          ]
         }
       ],
     })
 
-    // ── Check stop reason ─────────────────────────────────────────────────
+    // ── Check for truncation ──────────────────────────────────────────────
     if (response.stop_reason === 'max_tokens') {
-      console.warn(`Tab ${tabId} hit max_tokens limit — response may be truncated`)
+      console.warn(`Tab ${tabId} hit max_tokens — may be truncated. Tokens: ${response.usage.output_tokens}`)
     }
 
     // ── Parse response ────────────────────────────────────────────────────
@@ -156,31 +200,31 @@ export async function POST(req: NextRequest) {
 
     let parsed: Record<string, unknown>
     try {
-      // Strategy 1: direct parse after cleanup
       const directAttempt = cleaned.startsWith('{') ? cleaned : cleaned.slice(cleaned.indexOf('{'))
       try {
         parsed = JSON.parse(directAttempt)
       } catch {
-        // Strategy 2: find last } and try parsing the slice
         const start = cleaned.indexOf('{')
         const end   = cleaned.lastIndexOf('}')
         if (start === -1 || end === -1) throw new Error('No JSON object found')
         parsed = JSON.parse(cleaned.slice(start, end + 1))
       }
-    } catch (parseErr) {
+    } catch {
       console.error('Parse error. Raw response first 800 chars:')
       console.error(rawText.slice(0, 800))
       return NextResponse.json({
         error:   'parse_error',
         message: 'Failed to parse AI response. Please try again.',
-        debug:   rawText.slice(0, 300),
       }, { status: 500 })
     }
 
     // ── Usage tracking ────────────────────────────────────────────────────
-    const inputTokens  = response.usage.input_tokens
-    const outputTokens = response.usage.output_tokens
-    const apiCost      = estimateCost(modelKey, inputTokens, outputTokens)
+    const usage           = response.usage as any
+    const inputTokens     = usage.input_tokens     || 0
+    const outputTokens    = usage.output_tokens    || 0
+    const cacheReadTokens = usage.cache_read_input_tokens  || 0
+    const cacheWriteTokens= usage.cache_creation_input_tokens || 0
+    const apiCost         = estimateCost(modelKey, inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens)
 
     if (userId) {
       recordUsageEvent({
@@ -190,7 +234,7 @@ export async function POST(req: NextRequest) {
       }).catch(() => {})
     }
 
-    // ── Cache result ──────────────────────────────────────────────────────
+    // ── Write to Supabase cache ───────────────────────────────────────────
     setCachedTab(passage, roles, tabId, parsed).catch(() => {})
 
     // ── Return ────────────────────────────────────────────────────────────
@@ -199,7 +243,15 @@ export async function POST(req: NextRequest) {
       data:   parsed,
       cached: false,
       price:  studyPrice,
-      meta: { model, inputTokens, outputTokens, apiCost },
+      meta: {
+        model,
+        inputTokens,
+        outputTokens,
+        cacheReadTokens,
+        cacheWriteTokens,
+        apiCost,
+        promptCachingActive: cacheReadTokens > 0 || cacheWriteTokens > 0,
+      },
     })
 
   } catch (err: any) {
