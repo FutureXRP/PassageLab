@@ -27,6 +27,7 @@ const TAB_LABELS: Record<string, string> = {
   conflicts:       'Interpretive Conflicts',
   illustrations:   'Illustrations',
   outline:         'Outline',
+  leadership:      'Leadership',
   smallgroup:      'Small Group',
   youth:           'Youth',
   children:        'Children',
@@ -931,6 +932,31 @@ function ConflictsTab({ data }: { data: any }) {
   )
 }
 
+function LeadershipTab({ data }: { data: any }) {
+  const l = data?.leadership
+  if (!l) return null
+  return (
+    <>
+      <Hl label="Leadership Principle">{safeStr(l.principle)}</Hl>
+      <Info label="The Leader's Inner Life">{safeStr(l.inner_life)}</Info>
+      <Info label="Leading Through This Truth">{safeStr(l.leading_through_it)}</Info>
+      <Info label="The Leader's Blind Spot">{safeStr(l.blind_spot)}</Info>
+      <Info label="Difficult Conversations">{safeStr(l.difficult_conversations)}</Info>
+      <Sec title="Team & Staff Discussion Questions">
+        {(l.team_questions || []).map((q: any, i: number) => (
+          <div key={i} style={{ background: 'rgba(255,255,255,0.03)', border: '0.5px solid rgba(255,255,255,0.08)', borderRadius: 8, padding: '12px 14px', marginBottom: 8 }}>
+            <p style={{ ...S.bodyTxt, margin: 0 }}>{safeStr(q)}</p>
+          </div>
+        ))}
+      </Sec>
+      <div style={S.preach}>
+        <div style={{ fontSize: 10, color: GOLD, textTransform: 'uppercase' as const, letterSpacing: '1px', fontWeight: 600, marginBottom: 5 }}>This Week's Leadership Practice</div>
+        <p style={{ ...S.bodyTxt, margin: 0 }}>{safeStr(l.weekly_practice)}</p>
+      </div>
+    </>
+  )
+}
+
 // ─── Tab content router ────────────────────────────────────────────────────
 
 function TabContent({ tabId, data, bibleText, bibleVersion }: {
@@ -954,6 +980,7 @@ function TabContent({ tabId, data, bibleText, bibleVersion }: {
     case 'conflicts':       return <ConflictsTab data={data} />
     case 'illustrations':   return <IllustrationsTab data={data} />
     case 'outline':         return <OutlineTab data={data} />
+    case 'leadership':      return <LeadershipTab data={data} />
     case 'smallgroup':      return <SmallGroupTab data={data} />
     case 'youth':           return <YouthTab data={data} />
     case 'children':        return <ChildrenTab data={data} />
@@ -969,16 +996,122 @@ function TabContent({ tabId, data, bibleText, bibleVersion }: {
 
 // ─── Tab button ────────────────────────────────────────────────────────────
 
-function TabButton({ tabId, status, isDeep, isActive, onClick, cached }: {
+// ─── Payment modal ─────────────────────────────────────────────────────────
+
+function PaymentModal({ tier, passage, roles, onClose, onSuccess }: {
+  tier:      'quick' | 'deep'
+  passage:   string
+  roles:     string[]
+  onClose:   () => void
+  onSuccess: () => void
+}) {
+  const [step, setStep]       = useState<'info' | 'card' | 'processing'>('info')
+  const [error, setError]     = useState('')
+  const isDeep = tier === 'deep'
+  const color  = isDeep ? PURPLE : GOLD
+  const price  = isDeep ? '$2' : '$1'
+  const label  = isDeep ? 'Scholarly Depth' : 'Quick Study'
+  const tabs   = isDeep
+    ? ['Language', 'Hermeneutics', 'Christ', 'Apologetics', 'Interpretive Conflicts', 'Commentary', 'Church Fathers', 'Archaeology']
+    : ['Scripture', 'Historical', 'Illustrations', 'Outline', 'Leadership', 'Book List']
+
+  async function handleContinue() {
+    // For now in sandbox: skip real card entry, just unlock
+    // When Supabase auth is wired, this will require login + card setup
+    setStep('processing')
+    await new Promise(r => setTimeout(r, 800))
+    onSuccess()
+  }
+
+  return (
+    <div
+      onClick={onClose}
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{ background: '#131920', border: `1px solid ${color}40`, borderRadius: 16, padding: '36px 40px', maxWidth: 460, width: '100%', position: 'relative' as const }}
+      >
+        <button onClick={onClose} style={{ position: 'absolute' as const, top: 16, right: 16, background: 'none', border: 'none', color: SLATE, fontSize: 20, cursor: 'pointer' }}>×</button>
+
+        {step === 'info' && (
+          <>
+            <div style={{ fontFamily: SERIF, fontSize: 24, fontWeight: 700, color: PARCHMENT, marginBottom: 6 }}>
+              Unlock {label}
+            </div>
+            <div style={{ fontSize: 14, color: SLATE, marginBottom: 28, lineHeight: 1.6 }}>
+              {price} added to your account · billed once at month end · no subscription
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 24 }}>
+              <span style={{ fontFamily: SERIF, fontSize: 48, fontWeight: 700, color }}>{price}</span>
+              <span style={{ fontSize: 14, color: SLATE }}>this study · billed monthly</span>
+            </div>
+
+            <div style={{ marginBottom: 28 }}>
+              <div style={{ fontSize: 11, color: SLATE, textTransform: 'uppercase' as const, letterSpacing: '1px', fontWeight: 600, marginBottom: 10 }}>Includes</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap' as const, gap: 8 }}>
+                {tabs.map(tab => (
+                  <span key={tab} style={{ fontSize: 12, color, background: `${color}12`, border: `1px solid ${color}30`, borderRadius: 4, padding: '3px 10px' }}>{tab}</span>
+                ))}
+              </div>
+            </div>
+
+            <div style={{ background: 'rgba(255,255,255,0.04)', borderRadius: 8, padding: '10px 14px', marginBottom: 24 }}>
+              <span style={{ fontFamily: SERIF, fontSize: 14, fontStyle: 'italic' as const, color: PARCHMENT }}>{passage}</span>
+              {roles.map(r => (
+                <span key={r} style={{ marginLeft: 8, fontSize: 11, color: GOLD, background: 'rgba(201,151,58,0.1)', border: '1px solid rgba(201,151,58,0.25)', borderRadius: 4, padding: '1px 8px' }}>
+                  {r.charAt(0).toUpperCase() + r.slice(1)}
+                </span>
+              ))}
+            </div>
+
+            <div style={{ background: 'rgba(201,151,58,0.06)', border: '0.5px solid rgba(201,151,58,0.2)', borderRadius: 8, padding: '10px 14px', marginBottom: 24, fontSize: 12, color: SLATE, lineHeight: 1.6 }}>
+              <span style={{ color: GOLD, fontWeight: 600 }}>How billing works: </span>
+              Studies are tracked and billed once at the end of each month. A card is required to unlock — you won't be charged until billing day.
+            </div>
+
+            {error && <div style={{ fontSize: 13, color: '#F87171', marginBottom: 16 }}>{error}</div>}
+
+            <button
+              onClick={handleContinue}
+              style={{ width: '100%', background: color, color: INK, border: 'none', borderRadius: 10, padding: '16px', fontSize: 16, fontWeight: 700, cursor: 'pointer', fontFamily: SANS, marginBottom: 12 }}
+            >
+              Add Card & Unlock {label}
+            </button>
+
+            <div style={{ fontSize: 11, color: SLATE, textAlign: 'center' as const }}>
+              Secured by Stripe · No charge until month end · Cancel anytime
+            </div>
+          </>
+        )}
+
+        {step === 'processing' && (
+          <div style={{ textAlign: 'center' as const, padding: '40px 0' }}>
+            <div style={{ width: 40, height: 40, border: `3px solid ${color}`, borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.8s linear infinite', margin: '0 auto 20px' }} />
+            <div style={{ fontFamily: SERIF, fontSize: 18, color: PARCHMENT }}>Unlocking {label}…</div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function TabButton({ tabId, status, isDeep, isActive, onClick, cached, locked }: {
   tabId:    string
   status:   TabStatus
   isDeep:   boolean
   isActive: boolean
   onClick:  () => void
   cached:   boolean
+  locked?:  boolean
 }) {
   const activeColor = isDeep ? PURPLE : GOLD
-  const color = isActive ? activeColor : status === 'done' ? (isDeep ? '#8B7CF8' : '#B8892A') : SLATE
+  const color = locked
+    ? 'rgba(136,146,164,0.4)'
+    : isActive ? activeColor
+    : status === 'done' ? (isDeep ? '#8B7CF8' : '#B8892A')
+    : SLATE
 
   return (
     <button
@@ -1001,11 +1134,15 @@ function TabButton({ tabId, status, isDeep, isActive, onClick, cached }: {
         opacity:       status === 'generating' ? 0.7 : 1,
       }}
     >
-      {isDeep && <span style={{ width: 5, height: 5, borderRadius: '50%', background: isActive ? PURPLE : '#6B7A9F', flexShrink: 0, display: 'inline-block' }} />}
+      {isDeep && !locked && <span style={{ width: 5, height: 5, borderRadius: '50%', background: isActive ? PURPLE : '#6B7A9F', flexShrink: 0, display: 'inline-block' }} />}
       {status === 'generating' && <span style={{ width: 10, height: 10, border: `2px solid ${activeColor}`, borderTopColor: 'transparent', borderRadius: '50%', display: 'inline-block', animation: 'spin 0.8s linear infinite' }} />}
       {status === 'done' && cached && <span title="Served from cache" style={{ fontSize: 9, color: activeColor }}>⚡</span>}
+      {status === 'done' && !cached && <span style={{ fontSize: 10, color: activeColor }}>✓</span>}
       {TAB_LABELS[tabId] || tabId}
-      {status === 'idle' && <span style={{ fontSize: 10, color: SLATE }}>+</span>}
+      {locked
+        ? <span style={{ fontSize: 11, opacity: 0.5 }}>🔒</span>
+        : status === 'idle' && <span style={{ fontSize: 10, color: SLATE }}>+</span>
+      }
     </button>
   )
 }
@@ -1053,7 +1190,7 @@ function IdlePlaceholder({ tabId, onGenerate, isDeep, queuePosition }: {
             fontFamily:   SANS,
           }}
         >
-          Generate {isDeep ? 'Deep Dive ($2)' : 'Study ($1)'}
+          Generate — {isDeep ? '$2 Scholarly' : '$1 Practical'}
         </button>
       )}
     </div>
@@ -1070,10 +1207,22 @@ export default function StudyPage() {
   const roles        = rolesParam.split(',').filter(Boolean) as Role[]
 
   const { quick: quickTabs, deep: deepTabs } = getTabsForRoles(roles)
-  const allTabs = [...quickTabs, ...deepTabs]
 
-  const [tabStates, setTabStates]       = useState<Record<string, TabState>>(() => {
-    // Restore from localStorage on mount
+  // ── Study state ───────────────────────────────────────────────────────────
+  // free     = Overview only (anonymous, no cost)
+  // quick    = All $1 Haiku tabs unlocked
+  // deep     = All $2 Sonnet tabs unlocked
+  type StudyState = 'free' | 'quick' | 'deep'
+
+  const [studyState, setStudyState] = useState<StudyState>(() => {
+    if (typeof window === 'undefined') return 'free'
+    try {
+      const key = `pl_state_${passage}_${rolesParam}`
+      return (localStorage.getItem(key) as StudyState) || 'free'
+    } catch { return 'free' }
+  })
+
+  const [tabStates, setTabStates] = useState<Record<string, TabState>>(() => {
     if (typeof window === 'undefined') return {}
     try {
       const key = `pl_study_${passage}_${rolesParam}`
@@ -1081,57 +1230,111 @@ export default function StudyPage() {
       return saved ? JSON.parse(saved) : {}
     } catch { return {} }
   })
+
   const [bibleText, setBibleText]       = useState<any>(null)
   const [bibleVersion, setBibleVersion] = useState('kjv')
-  const [activeTab, setActiveTab]       = useState('')
+  const [activeTab, setActiveTab]       = useState('overview')
   const [currentlyGenerating, setCurrentlyGenerating] = useState<string | null>(null)
+  const [modal, setModal]               = useState<'quick' | 'deep' | null>(null)
   const generationQueue                  = useRef<string[]>([])
   const isProcessingQueue                = useRef(false)
   const hasInit                          = useRef(false)
 
-  // Persist tab data to localStorage so navigation doesn't lose work
+  // Handle Stripe return — auto-unlock if payment succeeded
+  useEffect(() => {
+    const payment  = searchParams.get('payment')
+    const unlocked = searchParams.get('unlocked') as 'quick' | 'deep' | null
+    if (payment === 'success' && unlocked) {
+      handlePaymentSuccess(unlocked)
+      // Clean up URL params without reloading
+      const url = new URL(window.location.href)
+      url.searchParams.delete('payment')
+      url.searchParams.delete('session_id')
+      url.searchParams.delete('unlocked')
+      window.history.replaceState({}, '', url.toString())
+    }
+  }, [])
+
+  // Persist tab data and study state to localStorage
   useEffect(() => {
     if (typeof window === 'undefined') return
     try {
-      const key = `pl_study_${passage}_${rolesParam}`
-      localStorage.setItem(key, JSON.stringify(tabStates))
+      localStorage.setItem(`pl_study_${passage}_${rolesParam}`, JSON.stringify(tabStates))
+      localStorage.setItem(`pl_state_${passage}_${rolesParam}`, studyState)
     } catch {}
-  }, [tabStates])
+  }, [tabStates, studyState])
 
-  // Auto-generate Overview + Scripture on load (skip if already cached in localStorage)
+  // On load — always generate Overview free, restore prior state if available
   useEffect(() => {
     if (hasInit.current) return
     hasInit.current = true
-    if (!tabStates['overview'] || tabStates['overview'].status !== 'done') queueTab('overview')
-    if (!tabStates['scripture'] || tabStates['scripture'].status !== 'done') queueTab('scripture')
-    // Set active tab to overview, or first done tab if restoring
-    const firstDone = Object.keys(tabStates).find(t => tabStates[t].status === 'done')
+
+    // Always generate Overview (free)
+    if (!tabStates['overview'] || tabStates['overview'].status !== 'done') {
+      queueTab('overview')
+    }
+
+    // If restoring from localStorage with deeper state, re-queue missing tabs
+    if (studyState === 'quick' || studyState === 'deep') {
+      quickTabs.forEach(tabId => {
+        if (!tabStates[tabId] || tabStates[tabId].status !== 'done') queueTab(tabId)
+      })
+    }
+    if (studyState === 'deep') {
+      deepTabs.forEach(tabId => {
+        if (!tabStates[tabId] || tabStates[tabId].status !== 'done') queueTab(tabId)
+      })
+    }
+
+    const firstDone = Object.keys(tabStates).find(t => tabStates[t]?.status === 'done')
     setActiveTab(firstDone || 'overview')
   }, [])
 
-  // ── Queue system — one tab at a time, sequential ────────────────────────
-  // Prevents rate limit errors and ensures prompt caching works correctly
-  // (each tab's cache write is read by the next tab in sequence)
+  // ── Queue system ─────────────────────────────────────────────────────────
+  // Sequential — one tab at a time, error-resilient
+  // Auto-queues all $1 tabs on load
+  // $2 tabs queued when user clicks "Generate All $2" or individual tab
 
   function queueTab(tabId: string) {
-    // Don't queue if already done, generating, or already in queue
     const state = tabStates[tabId]
     if (state?.status === 'done' || state?.status === 'generating') return
     if (generationQueue.current.includes(tabId)) return
-
     generationQueue.current.push(tabId)
-
-    // Mark as queued visually
     setTabStates(prev => ({
       ...prev,
       [tabId]: prev[tabId]?.status === 'done'
         ? prev[tabId]
         : { status: 'idle', data: null, cached: false }
     }))
+    if (!isProcessingQueue.current) processQueue()
+  }
 
-    // Start processing if not already running
-    if (!isProcessingQueue.current) {
-      processQueue()
+  function unlockQuick() {
+    setModal('quick')
+  }
+
+  function unlockDeep() {
+    setModal('deep')
+  }
+
+  function queueAllDeep() {
+    setModal('deep')
+  }
+
+  function handlePaymentSuccess(tier: 'quick' | 'deep') {
+    setModal(null)
+    if (tier === 'quick' || tier === 'deep') {
+      setStudyState('quick')
+      quickTabs.forEach(tabId => {
+        if (!tabStates[tabId] || tabStates[tabId].status !== 'done') queueTab(tabId)
+      })
+      setActiveTab(quickTabs.find(t => t !== 'overview') || 'overview')
+    }
+    if (tier === 'deep') {
+      setStudyState('deep')
+      deepTabs.forEach(tabId => {
+        if (!tabStates[tabId] || tabStates[tabId].status !== 'done') queueTab(tabId)
+      })
     }
   }
 
@@ -1142,6 +1345,10 @@ export default function StudyPage() {
     while (generationQueue.current.length > 0) {
       const tabId = generationQueue.current.shift()!
       await generateTab(tabId)
+      // Small pause between tabs to avoid rate limiting
+      if (generationQueue.current.length > 0) {
+        await new Promise(r => setTimeout(r, 300))
+      }
     }
 
     isProcessingQueue.current = false
@@ -1169,6 +1376,7 @@ export default function StudyPage() {
           ...prev,
           [tabId]: { status: 'error', data: null, cached: false }
         }))
+        // Don't stall queue on error — continue to next tab
         return
       }
 
@@ -1185,10 +1393,16 @@ export default function StudyPage() {
         ...prev,
         [tabId]: { status: 'error', data: null, cached: false }
       }))
+      // Continue queue even after network error
     }
   }
 
-  function handleTabClick(tabId: string) {
+  function handleTabClick(tabId: string, locked?: boolean) {
+    if (locked) {
+      const isDeepTab = deepTabs.includes(tabId)
+      setModal(isDeepTab ? 'deep' : 'quick')
+      return
+    }
     setActiveTab(tabId)
     const state = tabStates[tabId]
     if (!state || state.status === 'idle') {
@@ -1198,13 +1412,25 @@ export default function StudyPage() {
 
   const activeState  = tabStates[activeTab]
   const isDeepActive = deepTabs.includes(activeTab)
-
-  // This month's spend — placeholder until auth is wired
-  const studiesDone = Object.values(tabStates).filter(s => s.status === 'done').length
+  const doneCount    = Object.values(tabStates).filter(s => s.status === 'done').length
+  const isGenerating = currentlyGenerating !== null
+  const quickLocked  = studyState === 'free'
+  const deepLocked   = studyState !== 'deep'
 
   return (
     <div style={S.page}>
       <style>{`@keyframes spin { to { transform: rotate(360deg) } } button:hover { opacity: 0.85 }`}</style>
+
+      {/* Payment modal */}
+      {modal && (
+        <PaymentModal
+          tier={modal}
+          passage={passage}
+          roles={roles}
+          onClose={() => setModal(null)}
+          onSuccess={() => handlePaymentSuccess(modal)}
+        />
+      )}
 
       {/* Nav */}
       <nav style={S.nav}>
@@ -1219,52 +1445,121 @@ export default function StudyPage() {
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <span style={{ fontSize: 12, color: SLATE }}>
-            {currentlyGenerating
-              ? `Generating ${TAB_LABELS[currentlyGenerating] || currentlyGenerating}… ${generationQueue.current.length > 0 ? `(${generationQueue.current.length} queued)` : ''}`
-              : `${Object.values(tabStates).filter(s => s.status === 'done').length} tabs ready`
+            {isGenerating
+              ? `Generating ${TAB_LABELS[currentlyGenerating!] || currentlyGenerating}… ${generationQueue.current.length > 0 ? `(${generationQueue.current.length} queued)` : ''}`
+              : `${doneCount} tab${doneCount !== 1 ? 's' : ''} ready`
             }
           </span>
         </div>
       </nav>
 
-      {/* How it works banner */}
-      <div style={{
-        background:   'rgba(201,151,58,0.06)',
-        borderBottom: '1px solid rgba(201,151,58,0.15)',
-        padding:      '10px 24px',
-        display:      'flex',
-        alignItems:   'center',
-        gap:          12,
-      }}>
-        <span style={{ fontSize: 13, color: GOLD, flexShrink: 0 }}>📖</span>
-        <span style={{ fontSize: 12, color: SLATE, lineHeight: 1.5 }}>
-          <span style={{ color: PARCHMENT, fontWeight: 600 }}>How PassageLab works: </span>
-          Overview and Scripture load automatically. Click any tab to generate it on demand — tabs are generated one at a time to ensure quality and avoid errors.
-          {' '}<span style={{ color: GOLD }}>Quick Study tabs ($1)</span> · <span style={{ color: PURPLE }}>Deep Dive tabs ($2)</span> · <span style={{ color: GOLD }}>⚡ Instant</span> = served from library cache at no extra cost.
-        </span>
-      </div>
-
-      {/* Quick Study tabs */}
+      {/* Three-state tab header */}
       <div style={{ borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
-        <div style={S.tabRowLabel}>Quick Study</div>
-        <div style={S.tabRow}>
-          {quickTabs.map(tabId => (
-            <TabButton
-              key={tabId}
-              tabId={tabId}
-              status={tabStates[tabId]?.status || 'idle'}
-              isDeep={false}
-              isActive={activeTab === tabId}
-              cached={tabStates[tabId]?.cached || false}
-              onClick={() => handleTabClick(tabId)}
-            />
-          ))}
+
+        {/* Free row */}
+        <div style={{ display: 'flex', alignItems: 'center', padding: '0 16px', background: 'rgba(255,255,255,0.02)', borderBottom: '0.5px solid rgba(255,255,255,0.06)', minHeight: 44 }}>
+          <div style={{ fontSize: 10, color: SLATE, textTransform: 'uppercase' as const, letterSpacing: '1px', fontWeight: 600, marginRight: 8, paddingTop: 2, whiteSpace: 'nowrap' as const }}>Free</div>
+          <TabButton
+            tabId="overview"
+            status={tabStates['overview']?.status || 'idle'}
+            isDeep={false}
+            isActive={activeTab === 'overview'}
+            cached={tabStates['overview']?.cached || false}
+            locked={false}
+            onClick={() => handleTabClick('overview')}
+          />
+          {studyState === 'free' && (
+            <button
+              onClick={unlockQuick}
+              style={{
+                marginLeft:   'auto',
+                background:   GOLD,
+                color:        INK,
+                border:       'none',
+                borderRadius: 6,
+                padding:      '7px 20px',
+                fontSize:     13,
+                fontWeight:   700,
+                cursor:       'pointer',
+                fontFamily:   SANS,
+                whiteSpace:   'nowrap' as const,
+                flexShrink:   0,
+              }}
+            >
+              Quick Study — $1 🔒
+            </button>
+          )}
         </div>
 
-        {/* Deep Dive tabs */}
-        {deepTabs.length > 0 && (
-          <>
-            <div style={S.tabRowLabel}>Deep Dive</div>
+        {/* Teaser row in free state */}
+        {studyState === 'free' && (
+          <div style={{ padding: '6px 20px 8px', background: 'rgba(255,255,255,0.01)', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' as const }}>
+            <span style={{ fontSize: 11, color: SLATE }}>Unlocks:</span>
+            {quickTabs.filter(t => t !== 'overview').map(tabId => (
+              <span key={tabId} style={{ fontSize: 11, color: 'rgba(201,151,58,0.5)', background: 'rgba(201,151,58,0.04)', border: '0.5px solid rgba(201,151,58,0.12)', borderRadius: 4, padding: '2px 8px' }}>{TAB_LABELS[tabId]}</span>
+            ))}
+            {deepTabs.length > 0 && (
+              <>
+                <span style={{ fontSize: 11, color: SLATE, marginLeft: 4 }}>+ with $2:</span>
+                {deepTabs.slice(0, 4).map(tabId => (
+                  <span key={tabId} style={{ fontSize: 11, color: 'rgba(167,139,250,0.5)', background: 'rgba(167,139,250,0.04)', border: '0.5px solid rgba(167,139,250,0.12)', borderRadius: 4, padding: '2px 8px' }}>{TAB_LABELS[tabId]}</span>
+                ))}
+                {deepTabs.length > 4 && <span style={{ fontSize: 11, color: SLATE }}>+{deepTabs.length - 4} more</span>}
+              </>
+            )}
+          </div>
+        )}
+
+        {/* $1 Quick Study row */}
+        {studyState !== 'free' && (
+          <div style={{ background: 'rgba(255,255,255,0.02)', borderBottom: '0.5px solid rgba(255,255,255,0.06)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 20px 0' }}>
+              <span style={{ fontSize: 10, color: GOLD, textTransform: 'uppercase' as const, letterSpacing: '1px', fontWeight: 600 }}>
+                $1 — Practical Study ✓
+              </span>
+              {studyState === 'quick' && deepTabs.length > 0 && (
+                <button
+                  onClick={unlockDeep}
+                  style={{
+                    background:   PURPLE,
+                    color:        INK,
+                    border:       'none',
+                    borderRadius: 6,
+                    padding:      '5px 16px',
+                    fontSize:     12,
+                    fontWeight:   700,
+                    cursor:       'pointer',
+                    fontFamily:   SANS,
+                    whiteSpace:   'nowrap' as const,
+                  }}
+                >
+                  Scholarly Depth — $2 🔒
+                </button>
+              )}
+            </div>
+            <div style={S.tabRow}>
+              {quickTabs.filter(t => t !== 'overview').map(tabId => (
+                <TabButton
+                  key={tabId}
+                  tabId={tabId}
+                  status={tabStates[tabId]?.status || 'idle'}
+                  isDeep={false}
+                  isActive={activeTab === tabId}
+                  cached={tabStates[tabId]?.cached || false}
+                  locked={false}
+                  onClick={() => handleTabClick(tabId)}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* $2 Scholarly Depth row */}
+        {studyState === 'deep' && deepTabs.length > 0 && (
+          <div style={{ background: 'rgba(167,139,250,0.03)' }}>
+            <div style={{ fontSize: 10, color: PURPLE, textTransform: 'uppercase' as const, letterSpacing: '1px', fontWeight: 600, padding: '6px 20px 0' }}>
+              $2 — Scholarly Depth ✓
+            </div>
             <div style={S.tabRow}>
               {deepTabs.map(tabId => (
                 <TabButton
@@ -1274,16 +1569,88 @@ export default function StudyPage() {
                   isDeep={true}
                   isActive={activeTab === tabId}
                   cached={tabStates[tabId]?.cached || false}
+                  locked={false}
                   onClick={() => handleTabClick(tabId)}
                 />
               ))}
             </div>
-          </>
+          </div>
+        )}
+
+        {/* Locked $1 tabs preview in free state */}
+        {studyState === 'free' && quickTabs.filter(t => t !== 'overview').length > 0 && (
+          <div style={{ background: 'rgba(255,255,255,0.01)', borderBottom: '0.5px solid rgba(255,255,255,0.06)' }}>
+            <div style={S.tabRow}>
+              {quickTabs.filter(t => t !== 'overview').map(tabId => (
+                <TabButton
+                  key={tabId}
+                  tabId={tabId}
+                  status="idle"
+                  isDeep={false}
+                  isActive={false}
+                  cached={false}
+                  locked={true}
+                  onClick={() => handleTabClick(tabId, true)}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Locked $2 tabs preview in free/quick state */}
+        {deepLocked && deepTabs.length > 0 && (
+          <div style={{ background: 'rgba(167,139,250,0.02)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 20px 0' }}>
+              <span style={{ fontSize: 10, color: 'rgba(167,139,250,0.5)', textTransform: 'uppercase' as const, letterSpacing: '1px', fontWeight: 600 }}>
+                $2 — Scholarly Depth 🔒
+              </span>
+              {studyState === 'quick' && (
+                <button
+                  onClick={() => setModal('deep')}
+                  style={{
+                    background:   'rgba(167,139,250,0.1)',
+                    color:        PURPLE,
+                    border:       '1px solid rgba(167,139,250,0.3)',
+                    borderRadius: 6,
+                    padding:      '4px 14px',
+                    fontSize:     11,
+                    fontWeight:   700,
+                    cursor:       'pointer',
+                    fontFamily:   SANS,
+                  }}
+                >
+                  Unlock $2 →
+                </button>
+              )}
+            </div>
+            <div style={S.tabRow}>
+              {deepTabs.map(tabId => (
+                <TabButton
+                  key={tabId}
+                  tabId={tabId}
+                  status="idle"
+                  isDeep={true}
+                  isActive={false}
+                  cached={false}
+                  locked={true}
+                  onClick={() => handleTabClick(tabId, true)}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Teaser row in quick state */}
+        {studyState === 'quick' && deepTabs.length > 0 && (
+          <div style={{ padding: '6px 20px 8px', background: 'rgba(167,139,250,0.02)', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' as const }}>
+            <span style={{ fontSize: 11, color: SLATE }}>Unlock with $2 for full scholarly depth</span>
+          </div>
         )}
       </div>
 
       {/* Content */}
       <div style={S.content}>
+
         {/* Generating spinner */}
         {activeState?.status === 'generating' && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '40px 0' }}>
@@ -1307,7 +1674,7 @@ export default function StudyPage() {
           </div>
         )}
 
-        {/* Idle state — not yet generated */}
+        {/* Idle state */}
         {(!activeState || activeState.status === 'idle') && activeTab && (
           <IdlePlaceholder
             tabId={activeTab}
