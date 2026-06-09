@@ -3,6 +3,9 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useSearchParams } from 'next/navigation'
 import { getTabsForRoles, Role } from '@/lib/prompts'
+import { createClient } from '@supabase/supabase-js'
+import { loadStripe } from '@stripe/stripe-js'
+import { Elements, CardElement, useStripe, useElements } from '@stripe/react-stripe-js'
 
 // ─── Design tokens ────────────────────────────────────────────────────────
 const SERIF     = "'Playfair Display', Georgia, serif"
@@ -12,6 +15,21 @@ const PARCHMENT = '#F5F0E8'
 const SLATE     = '#8892A4'
 const INK       = '#0D1117'
 const PURPLE    = '#A78BFA'
+
+// ─── Supabase client ──────────────────────────────────────────────────────
+const supabase = typeof window !== 'undefined' &&
+  process.env.NEXT_PUBLIC_SUPABASE_URL &&
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+    ? createClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+      )
+    : null
+
+// ─── Stripe ───────────────────────────────────────────────────────────────
+const stripePromise = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
+  ? loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!)
+  : null
 
 // ─── Tab metadata ─────────────────────────────────────────────────────────
 const TAB_LABELS: Record<string, string> = {
@@ -996,6 +1014,80 @@ function TabContent({ tabId, data, bibleText, bibleVersion }: {
 
 // ─── Tab button ────────────────────────────────────────────────────────────
 
+// ─── Card form (inside Stripe Elements) ───────────────────────────────────
+
+function CardForm({ color, onSuccess, onError }: {
+  color:     string
+  onSuccess: (paymentMethodId: string) => void
+  onError:   (msg: string) => void
+}) {
+  const stripe   = useStripe()
+  const elements = useElements()
+  const [loading, setLoading] = useState(false)
+
+  async function handleSubmit() {
+    if (!stripe || !elements) return
+    setLoading(true)
+    const cardElement = elements.getElement(CardElement)
+    if (!cardElement) { setLoading(false); return }
+
+    const { error, paymentMethod } = await stripe.createPaymentMethod({
+      type: 'card',
+      card: cardElement,
+    })
+
+    if (error) {
+      onError(error.message || 'Card error')
+      setLoading(false)
+      return
+    }
+
+    onSuccess(paymentMethod.id)
+  }
+
+  return (
+    <div>
+      <div style={{
+        background:   'rgba(255,255,255,0.06)',
+        border:       '1px solid rgba(255,255,255,0.15)',
+        borderRadius: 8,
+        padding:      '14px 16px',
+        marginBottom: 16,
+      }}>
+        <CardElement options={{
+          style: {
+            base: {
+              fontSize:       '15px',
+              color:          '#F5F0E8',
+              fontFamily:     "'DM Sans', system-ui, sans-serif",
+              '::placeholder':{ color: '#8892A4' },
+            },
+            invalid: { color: '#F87171' },
+          }
+        }} />
+      </div>
+      <button
+        onClick={handleSubmit}
+        disabled={loading || !stripe}
+        style={{
+          width:        '100%',
+          background:   loading ? 'rgba(255,255,255,0.1)' : color,
+          color:        loading ? '#8892A4' : '#0D1117',
+          border:       'none',
+          borderRadius: 10,
+          padding:      '14px',
+          fontSize:     15,
+          fontWeight:   700,
+          cursor:       loading ? 'not-allowed' : 'pointer',
+          fontFamily:   "'DM Sans', system-ui, sans-serif",
+        }}
+      >
+        {loading ? 'Saving card…' : 'Save Card & Unlock'}
+      </button>
+    </div>
+  )
+}
+
 // ─── Payment modal ─────────────────────────────────────────────────────────
 
 function PaymentModal({ tier, passage, roles, alreadyPaidQuick, onClose, onSuccess }: {
@@ -1006,14 +1098,23 @@ function PaymentModal({ tier, passage, roles, alreadyPaidQuick, onClose, onSucce
   onClose:           () => void
   onSuccess:         () => void
 }) {
-  const [step, setStep]   = useState<'info' | 'processing'>('info')
-  const [error, setError] = useState('')
-  const isDeep   = tier === 'deep'
-  const color    = isDeep ? PURPLE : GOLD
-  // If already paid $1 and upgrading to deep, only charge $1 more
-  const price    = isDeep ? (alreadyPaidQuick ? '+$1' : '$2') : '$1'
-  const label    = isDeep ? 'Deep Dive' : 'Quick Study'
-  const tabs     = isDeep
+  type Step = 'info' | 'auth' | 'card' | 'processing' | 'done'
+  const [step, setStep]         = useState<Step>('info')
+  const [authMode, setAuthMode] = useState<'signin' | 'signup'>('signup')
+  const [email, setEmail]       = useState('')
+  const [password, setPassword] = useState('')
+  const [fullName, setFullName] = useState('')
+  const [userId, setUserId]     = useState<string | null>(null)
+  const [userEmail, setUserEmail] = useState<string | null>(null)
+  const [hasCard, setHasCard]   = useState(false)
+  const [error, setError]       = useState('')
+  const [setupClientSecret, setSetupClientSecret] = useState<string | null>(null)
+
+  const isDeep = tier === 'deep'
+  const color  = isDeep ? PURPLE : GOLD
+  const price  = isDeep ? (alreadyPaidQuick ? '+$1' : '$2') : '$1'
+  const label  = isDeep ? 'Deep Dive' : 'Quick Study'
+  const tabs   = isDeep
     ? (alreadyPaidQuick
         ? ['Language', 'Hermeneutics', 'Christ', 'Apologetics', 'Interpretive Conflicts', 'Commentary', 'Church Fathers', 'Archaeology']
         : ['Scripture', 'Historical', 'Illustrations', 'Outline', 'Leadership', 'Books',
@@ -1021,84 +1122,307 @@ function PaymentModal({ tier, passage, roles, alreadyPaidQuick, onClose, onSucce
            'Commentary', 'Church Fathers', 'Archaeology'])
     : ['Scripture', 'Historical', 'Illustrations', 'Outline', 'Leadership', 'Book List']
 
-  async function handleContinue() {
-    // For now in sandbox: skip real card entry, just unlock
-    // When Supabase auth is wired, this will require login + card setup
+  // Check if already logged in on mount
+  useEffect(() => {
+    async function checkSession() {
+      if (!supabase) return
+      const { data: { session } } = await supabase.auth.getSession()
+      if (session?.user) {
+        setUserId(session.user.id)
+        setUserEmail(session.user.email || null)
+        // Check if they have a card on file
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('stripe_payment_method_id, card_last4, card_brand')
+          .eq('id', session.user.id)
+          .single()
+        if (profile?.stripe_payment_method_id) {
+          setHasCard(true)
+        }
+        setStep('card') // skip auth step
+      }
+    }
+    checkSession()
+  }, [])
+
+  // ── Auth handlers ────────────────────────────────────────────────────────
+
+  async function handleAuth() {
+    if (!supabase) { setError('Auth not configured'); return }
+    setError('')
     setStep('processing')
-    await new Promise(r => setTimeout(r, 800))
-    onSuccess()
+
+    try {
+      if (authMode === 'signup') {
+        const { data, error: authError } = await supabase.auth.signUp({
+          email,
+          password,
+          options: { data: { full_name: fullName } },
+        })
+        if (authError) throw authError
+        if (data.user) {
+          setUserId(data.user.id)
+          setUserEmail(data.user.email || null)
+        }
+      } else {
+        const { data, error: authError } = await supabase.auth.signInWithPassword({ email, password })
+        if (authError) throw authError
+        if (data.user) {
+          setUserId(data.user.id)
+          setUserEmail(data.user.email || null)
+          // Check for existing card
+          const { data: profile } = await supabase
+            .from('profiles')
+            .select('stripe_payment_method_id, card_last4')
+            .eq('id', data.user.id)
+            .single()
+          if (profile?.stripe_payment_method_id) {
+            setHasCard(true)
+          }
+        }
+      }
+      setStep('card')
+    } catch (err: any) {
+      setError(err.message || 'Authentication failed')
+      setStep('auth')
+    }
+  }
+
+  // ── Card saved handler ───────────────────────────────────────────────────
+
+  async function handleCardSaved(paymentMethodId: string) {
+    if (!userId || !supabase) return
+    setStep('processing')
+    setError('')
+
+    try {
+      // Get or create Stripe customer, save the payment method
+      const res = await fetch('/api/setup-intent/confirm', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({
+          userId,
+          email:           userEmail,
+          paymentMethodId,
+        }),
+      })
+
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error || 'Failed to save card')
+
+      // Record the study unlock for billing
+      await fetch('/api/checkout', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({
+          userId,
+          tier,
+          passage,
+          roles,
+        }),
+      })
+
+      onSuccess()
+    } catch (err: any) {
+      setError(err.message || 'Failed to save card')
+      setStep('card')
+    }
+  }
+
+  // ── Use existing card ────────────────────────────────────────────────────
+
+  async function handleUseExistingCard() {
+    if (!userId) return
+    setStep('processing')
+
+    try {
+      await fetch('/api/checkout', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ userId, tier, passage, roles }),
+      })
+      onSuccess()
+    } catch (err: any) {
+      setError(err.message || 'Failed to unlock')
+      setStep('card')
+    }
+  }
+
+  // ── Render ───────────────────────────────────────────────────────────────
+
+  const overlay: React.CSSProperties = {
+    position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)',
+    zIndex: 1000, display: 'flex', alignItems: 'center',
+    justifyContent: 'center', padding: 24,
+  }
+  const box: React.CSSProperties = {
+    background: '#131920', border: `1px solid ${color}40`,
+    borderRadius: 16, padding: '36px 40px',
+    maxWidth: 460, width: '100%', position: 'relative',
+  }
+  const inputStyle: React.CSSProperties = {
+    width: '100%', background: 'rgba(255,255,255,0.06)',
+    border: '1px solid rgba(255,255,255,0.12)', borderRadius: 8,
+    padding: '12px 14px', fontSize: 14, color: PARCHMENT,
+    fontFamily: SANS, outline: 'none', marginBottom: 12,
+    boxSizing: 'border-box',
+  }
+  const btnPrimary: React.CSSProperties = {
+    width: '100%', background: color, color: INK,
+    border: 'none', borderRadius: 10, padding: '14px',
+    fontSize: 15, fontWeight: 700, cursor: 'pointer',
+    fontFamily: SANS, marginBottom: 12,
   }
 
   return (
-    <div
-      onClick={onClose}
-      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}
-    >
-      <div
-        onClick={e => e.stopPropagation()}
-        style={{ background: '#131920', border: `1px solid ${color}40`, borderRadius: 16, padding: '36px 40px', maxWidth: 460, width: '100%', position: 'relative' as const }}
-      >
-        <button onClick={onClose} style={{ position: 'absolute' as const, top: 16, right: 16, background: 'none', border: 'none', color: SLATE, fontSize: 20, cursor: 'pointer' }}>×</button>
+    <div onClick={onClose} style={overlay}>
+      <div onClick={e => e.stopPropagation()} style={box}>
+        <button onClick={onClose} style={{ position: 'absolute', top: 16, right: 16, background: 'none', border: 'none', color: SLATE, fontSize: 20, cursor: 'pointer' }}>×</button>
 
+        {/* ── Info step ── */}
         {step === 'info' && (
           <>
             <div style={{ fontFamily: SERIF, fontSize: 24, fontWeight: 700, color: PARCHMENT, marginBottom: 6 }}>
               Unlock {label}
             </div>
-            <div style={{ fontSize: 14, color: SLATE, marginBottom: 28, lineHeight: 1.6 }}>
+            <div style={{ fontSize: 14, color: SLATE, marginBottom: 24, lineHeight: 1.6 }}>
               {isDeep
-                ? 'Includes everything — all practical and scholarly tabs. Maximum you\'ll ever pay for one study.'
+                ? 'All tabs included — practical and scholarly. Maximum you\'ll ever pay for one study.'
                 : 'Practical study tabs for sermon and lesson prep.'
-              } Added to your account · billed once at month end.
+              } Billed once at month end.
             </div>
 
-            <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 24 }}>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 20 }}>
               <span style={{ fontFamily: SERIF, fontSize: 48, fontWeight: 700, color }}>{price}</span>
               <span style={{ fontSize: 14, color: SLATE }}>this study · billed monthly</span>
             </div>
 
-            <div style={{ marginBottom: 28 }}>
-              <div style={{ fontSize: 11, color: SLATE, textTransform: 'uppercase' as const, letterSpacing: '1px', fontWeight: 600, marginBottom: 10 }}>Includes</div>
-              <div style={{ display: 'flex', flexWrap: 'wrap' as const, gap: 8 }}>
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ fontSize: 11, color: SLATE, textTransform: 'uppercase', letterSpacing: '1px', fontWeight: 600, marginBottom: 8 }}>Includes</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                 {tabs.map(tab => (
                   <span key={tab} style={{ fontSize: 12, color, background: `${color}12`, border: `1px solid ${color}30`, borderRadius: 4, padding: '3px 10px' }}>{tab}</span>
                 ))}
               </div>
             </div>
 
-            <div style={{ background: 'rgba(255,255,255,0.04)', borderRadius: 8, padding: '10px 14px', marginBottom: 24 }}>
-              <span style={{ fontFamily: SERIF, fontSize: 14, fontStyle: 'italic' as const, color: PARCHMENT }}>{passage}</span>
-              {roles.map(r => (
-                <span key={r} style={{ marginLeft: 8, fontSize: 11, color: GOLD, background: 'rgba(201,151,58,0.1)', border: '1px solid rgba(201,151,58,0.25)', borderRadius: 4, padding: '1px 8px' }}>
-                  {r.charAt(0).toUpperCase() + r.slice(1)}
-                </span>
-              ))}
-            </div>
-
             <div style={{ background: 'rgba(201,151,58,0.06)', border: '0.5px solid rgba(201,151,58,0.2)', borderRadius: 8, padding: '10px 14px', marginBottom: 24, fontSize: 12, color: SLATE, lineHeight: 1.6 }}>
               <span style={{ color: GOLD, fontWeight: 600 }}>How billing works: </span>
-              Studies are tracked and billed once at the end of each month. A card is required to unlock — you won't be charged until billing day.
+              Studies tracked and billed once at month end. Card required to unlock — no charge until billing day.
             </div>
 
-            {error && <div style={{ fontSize: 13, color: '#F87171', marginBottom: 16 }}>{error}</div>}
-
-            <button
-              onClick={handleContinue}
-              style={{ width: '100%', background: color, color: INK, border: 'none', borderRadius: 10, padding: '16px', fontSize: 16, fontWeight: 700, cursor: 'pointer', fontFamily: SANS, marginBottom: 12 }}
-            >
-              Add Card & Unlock {label}
+            <button onClick={() => setStep('auth')} style={btnPrimary}>
+              Continue — {price}
             </button>
-
-            <div style={{ fontSize: 11, color: SLATE, textAlign: 'center' as const }}>
-              Secured by Stripe · No charge until month end · Cancel anytime
+            <div style={{ fontSize: 11, color: SLATE, textAlign: 'center' }}>
+              Secured by Stripe · No charge until month end
             </div>
           </>
         )}
 
+        {/* ── Auth step ── */}
+        {step === 'auth' && (
+          <>
+            <div style={{ fontFamily: SERIF, fontSize: 22, fontWeight: 700, color: PARCHMENT, marginBottom: 6 }}>
+              {authMode === 'signup' ? 'Create your account' : 'Sign in'}
+            </div>
+            <div style={{ fontSize: 13, color: SLATE, marginBottom: 24 }}>
+              {authMode === 'signup' ? 'Free to create · card added in next step' : 'Welcome back'}
+            </div>
+
+            {authMode === 'signup' && (
+              <input
+                type="text"
+                placeholder="Full name"
+                value={fullName}
+                onChange={e => setFullName(e.target.value)}
+                style={inputStyle}
+              />
+            )}
+            <input
+              type="email"
+              placeholder="Email address"
+              value={email}
+              onChange={e => setEmail(e.target.value)}
+              style={inputStyle}
+            />
+            <input
+              type="password"
+              placeholder="Password"
+              value={password}
+              onChange={e => setPassword(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && handleAuth()}
+              style={{ ...inputStyle, marginBottom: 20 }}
+            />
+
+            {error && <div style={{ fontSize: 13, color: '#F87171', marginBottom: 12 }}>{error}</div>}
+
+            <button onClick={handleAuth} style={btnPrimary}>
+              {authMode === 'signup' ? 'Create Account' : 'Sign In'}
+            </button>
+
+            <div style={{ textAlign: 'center', fontSize: 13, color: SLATE }}>
+              {authMode === 'signup' ? 'Already have an account? ' : 'No account? '}
+              <button
+                onClick={() => { setAuthMode(authMode === 'signup' ? 'signin' : 'signup'); setError('') }}
+                style={{ background: 'none', border: 'none', color: GOLD, cursor: 'pointer', fontSize: 13, fontFamily: SANS }}
+              >
+                {authMode === 'signup' ? 'Sign in' : 'Create one'}
+              </button>
+            </div>
+          </>
+        )}
+
+        {/* ── Card step ── */}
+        {step === 'card' && (
+          <>
+            <div style={{ fontFamily: SERIF, fontSize: 22, fontWeight: 700, color: PARCHMENT, marginBottom: 6 }}>
+              {hasCard ? 'Confirm unlock' : 'Add payment method'}
+            </div>
+            <div style={{ fontSize: 13, color: SLATE, marginBottom: 24 }}>
+              {hasCard
+                ? 'Your saved card will be charged at month end.'
+                : 'Card saved securely by Stripe. Charged at month end, not now.'}
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 24 }}>
+              <span style={{ fontFamily: SERIF, fontSize: 36, fontWeight: 700, color }}>{price}</span>
+              <span style={{ fontSize: 13, color: SLATE }}>added to your bill</span>
+            </div>
+
+            {error && <div style={{ fontSize: 13, color: '#F87171', marginBottom: 12 }}>{error}</div>}
+
+            {hasCard ? (
+              <button onClick={handleUseExistingCard} style={btnPrimary}>
+                Confirm — Unlock {label}
+              </button>
+            ) : (
+              stripePromise ? (
+                <Elements stripe={stripePromise}>
+                  <CardForm
+                    color={color}
+                    onSuccess={handleCardSaved}
+                    onError={msg => setError(msg)}
+                  />
+                </Elements>
+              ) : (
+                <div style={{ fontSize: 13, color: '#F87171' }}>Stripe not configured. Add NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY to environment variables.</div>
+              )
+            )}
+
+            <div style={{ marginTop: 12, fontSize: 11, color: SLATE, textAlign: 'center' }}>
+              Secured by Stripe · No charge until month end
+            </div>
+          </>
+        )}
+
+        {/* ── Processing step ── */}
         {step === 'processing' && (
-          <div style={{ textAlign: 'center' as const, padding: '40px 0' }}>
+          <div style={{ textAlign: 'center', padding: '40px 0' }}>
             <div style={{ width: 40, height: 40, border: `3px solid ${color}`, borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.8s linear infinite', margin: '0 auto 20px' }} />
-            <div style={{ fontFamily: SERIF, fontSize: 18, color: PARCHMENT }}>Unlocking {label}…</div>
+            <div style={{ fontFamily: SERIF, fontSize: 18, color: PARCHMENT }}>
+              {userId ? 'Saving card…' : 'Creating account…'}
+            </div>
           </div>
         )}
       </div>
