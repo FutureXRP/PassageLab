@@ -186,8 +186,9 @@ export async function POST(req: NextRequest) {
     })
 
     // ── Check for truncation ──────────────────────────────────────────────
-    if (response.stop_reason === 'max_tokens') {
-      console.warn(`Tab ${tabId} hit max_tokens — may be truncated. Tokens: ${response.usage.output_tokens}`)
+    const truncated = response.stop_reason === 'max_tokens'
+    if (truncated) {
+      console.warn(`Tab ${tabId} hit max_tokens — attempting recovery. Tokens: ${response.usage.output_tokens}`)
     }
 
     // ── Parse response ────────────────────────────────────────────────────
@@ -200,21 +201,48 @@ export async function POST(req: NextRequest) {
 
     let parsed: Record<string, unknown>
     try {
-      const directAttempt = cleaned.startsWith('{') ? cleaned : cleaned.slice(cleaned.indexOf('{'))
-      try {
-        parsed = JSON.parse(directAttempt)
-      } catch {
-        const start = cleaned.indexOf('{')
-        const end   = cleaned.lastIndexOf('}')
-        if (start === -1 || end === -1) throw new Error('No JSON object found')
-        parsed = JSON.parse(cleaned.slice(start, end + 1))
+      const start = cleaned.indexOf('{')
+      if (start === -1) throw new Error('No JSON found')
+      let str = cleaned.slice(start)
+
+      // Strategy 1: direct parse
+      try { parsed = JSON.parse(str) }
+      catch {
+        // Strategy 2: find last complete } 
+        const end = str.lastIndexOf('}')
+        if (end === -1) throw new Error('No closing brace')
+        try { parsed = JSON.parse(str.slice(0, end + 1)) }
+        catch {
+          // Strategy 3: truncated JSON recovery — close any open structures
+          // Count open braces/brackets and close them
+          let depth = 0, inString = false, escape = false
+          let lastGoodPos = 0
+          for (let i = 0; i < str.length; i++) {
+            const ch = str[i]
+            if (escape)                   { escape = false; continue }
+            if (ch === '\\' && inString)  { escape = true;  continue }
+            if (ch === '"')               { inString = !inString; continue }
+            if (inString)                 continue
+            if (ch === '{' || ch === '[') depth++
+            if (ch === '}' || ch === ']') { depth--; if (depth === 0) lastGoodPos = i }
+          }
+          // Try up to the last balanced position
+          if (lastGoodPos > 0) {
+            try { parsed = JSON.parse(str.slice(0, lastGoodPos + 1)) }
+            catch { throw new Error('Recovery failed') }
+          } else {
+            throw new Error('No balanced JSON found')
+          }
+        }
       }
     } catch {
-      console.error('Parse error. Raw response first 800 chars:')
+      console.error(`Parse error on tab ${tabId}. Truncated: ${truncated}. Raw first 800 chars:`)
       console.error(rawText.slice(0, 800))
       return NextResponse.json({
         error:   'parse_error',
-        message: 'Failed to parse AI response. Please try again.',
+        message: truncated
+          ? 'Response was too long and got cut off. Try a shorter passage.'
+          : 'Failed to parse AI response. Please try again.',
       }, { status: 500 })
     }
 
