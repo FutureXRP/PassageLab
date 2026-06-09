@@ -351,20 +351,20 @@ function OverviewTab({ data }: { data: any }) {
   if (!o) return null
   return (
     <>
-      <Hl label="Main Idea">{o.main_idea}</Hl>
-      <Info label="Summary">{o.summary}</Info>
-      <Info label="Setting">{o.setting}</Info>
-      <Info label="Literary Structure">{o.literary_structure}</Info>
+      <Hl label="Main Idea">{safeStr(o.main_idea)}</Hl>
+      <Info label="Summary">{safeStr(o.summary)}</Info>
+      <Info label="Setting">{safeStr(o.setting)}</Info>
+      <Info label="Literary Structure">{safeStr(o.literary_structure)}</Info>
       <Sec title="Key Themes">
         <div style={S.themes}>
-          {(o.themes || []).map((t: string, i: number) => (
-            <div key={i} style={S.pill}>{t}</div>
+          {(o.themes || []).map((t: any, i: number) => (
+            <div key={i} style={S.pill}>{safeStr(t)}</div>
           ))}
         </div>
       </Sec>
       <Sec title="Teaching Opportunities">
-        {(o.teaching_opportunities || []).map((t: string, i: number) => (
-          <Body key={i}>→ {t}</Body>
+        {(o.teaching_opportunities || []).map((t: any, i: number) => (
+          <Body key={i}>→ {safeStr(t)}</Body>
         ))}
       </Sec>
     </>
@@ -437,23 +437,38 @@ function HistoryTab({ data }: { data: any }) {
   )
 }
 
+// ─── Safe string helper ────────────────────────────────────────────────────
+// Prevents React error #31 when Claude returns an object instead of a string
+function safeStr(val: any): string {
+  if (val === null || val === undefined) return ''
+  if (typeof val === 'string') return val
+  if (typeof val === 'number' || typeof val === 'boolean') return String(val)
+  if (typeof val === 'object') {
+    // If it's an object, join its values into a readable string
+    return Object.entries(val)
+      .map(([k, v]) => `${k.replace(/_/g, ' ')}: ${safeStr(v)}`)
+      .join(' · ')
+  }
+  return String(val)
+}
+
 function HermeneuticsTab({ data }: { data: any }) {
   const h = data?.hermeneutics
   if (!h) return null
   return (
     <>
-      <Info label="Genre Rules">{h.genre_rules}</Info>
-      <Info label="Authorial Intent">{h.authorial_intent}</Info>
-      <Info label="Context Levels">{h.context_levels}</Info>
+      <Info label="Genre Rules">{safeStr(h.genre_rules)}</Info>
+      <Info label="Authorial Intent">{safeStr(h.authorial_intent)}</Info>
+      <Info label="Context Levels">{safeStr(h.context_levels)}</Info>
       <Sec title="Common Mistakes">
-        {(h.common_mistakes || []).map((m: string, i: number) => <Body key={i}>→ {m}</Body>)}
+        {(h.common_mistakes || []).map((m: any, i: number) => <Body key={i}>→ {safeStr(m)}</Body>)}
       </Sec>
       <Sec title="Key Questions">
-        {(h.key_questions || []).map((q: string, i: number) => <Body key={i}>{i + 1}. {q}</Body>)}
+        {(h.key_questions || []).map((q: any, i: number) => <Body key={i}>{i + 1}. {safeStr(q)}</Body>)}
       </Sec>
-      <Info label="Faithful Reading">{h.faithful_reading}</Info>
-      <Info label="Application Principles">{h.application_principles}</Info>
-      <Info label="Interpretive Tradition">{h.interpretive_tradition}</Info>
+      <Info label="Faithful Reading">{safeStr(h.faithful_reading)}</Info>
+      <Info label="Application Principles">{safeStr(h.application_principles)}</Info>
+      <Info label="Interpretive Tradition">{safeStr(h.interpretive_tradition)}</Info>
     </>
   )
 }
@@ -463,12 +478,12 @@ function ChristTab({ data }: { data: any }) {
   if (!c) return null
   return (
     <>
-      <Hl label="Christological Title">{c.title}</Hl>
-      <Info label="Christ's Presence">{c.presence}</Info>
-      <Info label="Old Testament Foreshadowing">{c.foreshadowing}</Info>
-      <Info label="Fulfillment">{c.fulfillment}</Info>
-      <Info label="Gospel Thread">{c.gospel_thread}</Info>
-      <Info label="Path from Text to Christ">{c.christocentric_preaching}</Info>
+      <Hl label="Christological Title">{safeStr(c.title)}</Hl>
+      <Info label="Christ's Presence">{safeStr(c.presence)}</Info>
+      <Info label="Old Testament Foreshadowing">{safeStr(c.foreshadowing)}</Info>
+      <Info label="Fulfillment">{safeStr(c.fulfillment)}</Info>
+      <Info label="Gospel Thread">{safeStr(c.gospel_thread)}</Info>
+      <Info label="Path from Text to Christ">{safeStr(c.christocentric_preaching)}</Info>
     </>
   )
 }
@@ -479,20 +494,20 @@ function TheologyTab({ data, isDeep }: { data: any; isDeep?: boolean }) {
   return (
     <>
       {isDeep && <DeepBanner tabId="theology" />}
-      <Info label="God">{t.god}</Info>
-      <Info label="Christology">{t.christ}</Info>
-      <Info label="Holy Spirit">{t.holy_spirit}</Info>
-      <Info label="Salvation">{t.salvation}</Info>
-      <Info label="Humanity">{t.humanity}</Info>
-      <Info label="Kingdom">{t.kingdom}</Info>
-      <Info label="Covenant">{t.covenant}</Info>
-      <Info label="Church">{t.church}</Info>
-      <Info label="Eschatology">{t.eschatology}</Info>
-      <Info label="Biblical Theology Arc">{t.biblical_theology}</Info>
-      <Info label="Systematic Connections">{t.systematic_connections}</Info>
+      <Info label="God">{safeStr(t.god)}</Info>
+      <Info label="Christology">{safeStr(t.christ)}</Info>
+      <Info label="Holy Spirit">{safeStr(t.holy_spirit)}</Info>
+      <Info label="Salvation">{safeStr(t.salvation)}</Info>
+      <Info label="Humanity">{safeStr(t.humanity)}</Info>
+      <Info label="Kingdom">{safeStr(t.kingdom)}</Info>
+      <Info label="Covenant">{safeStr(t.covenant)}</Info>
+      <Info label="Church">{safeStr(t.church)}</Info>
+      <Info label="Eschatology">{safeStr(t.eschatology)}</Info>
+      <Info label="Biblical Theology Arc">{safeStr(t.biblical_theology)}</Info>
+      <Info label="Systematic Connections">{safeStr(t.systematic_connections)}</Info>
       {t.doctrinal_issues && (
         <Sec title="Doctrinal Issues">
-          {t.doctrinal_issues.map((d: string, i: number) => <Body key={i}>→ {d}</Body>)}
+          {t.doctrinal_issues.map((d: any, i: number) => <Body key={i}>→ {safeStr(d)}</Body>)}
         </Sec>
       )}
     </>
@@ -502,11 +517,11 @@ function TheologyTab({ data, isDeep }: { data: any; isDeep?: boolean }) {
 function CrossRefsTab({ data }: { data: any }) {
   const c = data?.crossrefs
   if (!c) return null
-  const renderList = (items: string[], label: string) => items?.length > 0 && (
+  const renderList = (items: any[], label: string) => items?.length > 0 && (
     <Sec title={label}>
       <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
-        {items.map((r: string, i: number) => (
-          <li key={i} style={{ ...S.bodyTxt, padding: '6px 0', borderBottom: '0.5px solid rgba(255,255,255,0.05)', marginBottom: 0 }}>{r}</li>
+        {items.map((r: any, i: number) => (
+          <li key={i} style={{ ...S.bodyTxt, padding: '6px 0', borderBottom: '0.5px solid rgba(255,255,255,0.05)', marginBottom: 0 }}>{safeStr(r)}</li>
         ))}
       </ul>
     </Sec>
@@ -518,8 +533,8 @@ function CrossRefsTab({ data }: { data: any }) {
       {renderList(c.typological, 'Typological Connections')}
       {renderList(c.thematic, 'Thematic Connections')}
       {renderList(c.parallel_passages, 'Parallel Passages')}
-      <Info label="Old Testament Backdrop">{c.ot_backdrop}</Info>
-      <Info label="NT Development">{c.nt_development}</Info>
+      <Info label="Old Testament Backdrop">{safeStr(c.ot_backdrop)}</Info>
+      <Info label="NT Development">{safeStr(c.nt_development)}</Info>
     </>
   )
 }
@@ -1057,7 +1072,15 @@ export default function StudyPage() {
   const { quick: quickTabs, deep: deepTabs } = getTabsForRoles(roles)
   const allTabs = [...quickTabs, ...deepTabs]
 
-  const [tabStates, setTabStates]       = useState<Record<string, TabState>>({})
+  const [tabStates, setTabStates]       = useState<Record<string, TabState>>(() => {
+    // Restore from localStorage on mount
+    if (typeof window === 'undefined') return {}
+    try {
+      const key = `pl_study_${passage}_${rolesParam}`
+      const saved = localStorage.getItem(key)
+      return saved ? JSON.parse(saved) : {}
+    } catch { return {} }
+  })
   const [bibleText, setBibleText]       = useState<any>(null)
   const [bibleVersion, setBibleVersion] = useState('kjv')
   const [activeTab, setActiveTab]       = useState('')
@@ -1066,13 +1089,24 @@ export default function StudyPage() {
   const isProcessingQueue                = useRef(false)
   const hasInit                          = useRef(false)
 
-  // Auto-generate Overview + Scripture on load
+  // Persist tab data to localStorage so navigation doesn't lose work
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    try {
+      const key = `pl_study_${passage}_${rolesParam}`
+      localStorage.setItem(key, JSON.stringify(tabStates))
+    } catch {}
+  }, [tabStates])
+
+  // Auto-generate Overview + Scripture on load (skip if already cached in localStorage)
   useEffect(() => {
     if (hasInit.current) return
     hasInit.current = true
-    queueTab('overview')
-    queueTab('scripture')
-    setActiveTab('overview')
+    if (!tabStates['overview'] || tabStates['overview'].status !== 'done') queueTab('overview')
+    if (!tabStates['scripture'] || tabStates['scripture'].status !== 'done') queueTab('scripture')
+    // Set active tab to overview, or first done tab if restoring
+    const firstDone = Object.keys(tabStates).find(t => tabStates[t].status === 'done')
+    setActiveTab(firstDone || 'overview')
   }, [])
 
   // ── Queue system — one tab at a time, sequential ────────────────────────
