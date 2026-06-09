@@ -998,21 +998,27 @@ function TabContent({ tabId, data, bibleText, bibleVersion }: {
 
 // ─── Payment modal ─────────────────────────────────────────────────────────
 
-function PaymentModal({ tier, passage, roles, onClose, onSuccess }: {
-  tier:      'quick' | 'deep'
-  passage:   string
-  roles:     string[]
-  onClose:   () => void
-  onSuccess: () => void
+function PaymentModal({ tier, passage, roles, alreadyPaidQuick, onClose, onSuccess }: {
+  tier:              'quick' | 'deep'
+  passage:           string
+  roles:             string[]
+  alreadyPaidQuick?: boolean
+  onClose:           () => void
+  onSuccess:         () => void
 }) {
-  const [step, setStep]       = useState<'info' | 'card' | 'processing'>('info')
-  const [error, setError]     = useState('')
-  const isDeep = tier === 'deep'
-  const color  = isDeep ? PURPLE : GOLD
-  const price  = isDeep ? '$2' : '$1'
-  const label  = isDeep ? 'Scholarly Depth' : 'Quick Study'
-  const tabs   = isDeep
-    ? ['Language', 'Hermeneutics', 'Christ', 'Apologetics', 'Interpretive Conflicts', 'Commentary', 'Church Fathers', 'Archaeology']
+  const [step, setStep]   = useState<'info' | 'processing'>('info')
+  const [error, setError] = useState('')
+  const isDeep   = tier === 'deep'
+  const color    = isDeep ? PURPLE : GOLD
+  // If already paid $1 and upgrading to deep, only charge $1 more
+  const price    = isDeep ? (alreadyPaidQuick ? '+$1' : '$2') : '$1'
+  const label    = isDeep ? 'Deep Dive' : 'Quick Study'
+  const tabs     = isDeep
+    ? (alreadyPaidQuick
+        ? ['Language', 'Hermeneutics', 'Christ', 'Apologetics', 'Interpretive Conflicts', 'Commentary', 'Church Fathers', 'Archaeology']
+        : ['Scripture', 'Historical', 'Illustrations', 'Outline', 'Leadership', 'Books',
+           'Language', 'Hermeneutics', 'Christ', 'Apologetics', 'Interpretive Conflicts',
+           'Commentary', 'Church Fathers', 'Archaeology'])
     : ['Scripture', 'Historical', 'Illustrations', 'Outline', 'Leadership', 'Book List']
 
   async function handleContinue() {
@@ -1040,7 +1046,10 @@ function PaymentModal({ tier, passage, roles, onClose, onSuccess }: {
               Unlock {label}
             </div>
             <div style={{ fontSize: 14, color: SLATE, marginBottom: 28, lineHeight: 1.6 }}>
-              {price} added to your account · billed once at month end · no subscription
+              {isDeep
+                ? 'Includes everything — all practical and scholarly tabs. Maximum you\'ll ever pay for one study.'
+                : 'Practical study tabs for sermon and lesson prep.'
+              } Added to your account · billed once at month end.
             </div>
 
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 24 }}>
@@ -1314,6 +1323,7 @@ export default function StudyPage() {
   }
 
   function unlockDeep() {
+    // If already on quick state, modal shows +$1 not $2
     setModal('deep')
   }
 
@@ -1323,7 +1333,7 @@ export default function StudyPage() {
 
   function handlePaymentSuccess(tier: 'quick' | 'deep') {
     setModal(null)
-    if (tier === 'quick' || tier === 'deep') {
+    if (tier === 'quick') {
       setStudyState('quick')
       quickTabs.forEach(tabId => {
         if (!tabStates[tabId] || tabStates[tabId].status !== 'done') queueTab(tabId)
@@ -1331,10 +1341,15 @@ export default function StudyPage() {
       setActiveTab(quickTabs.find(t => t !== 'overview') || 'overview')
     }
     if (tier === 'deep') {
+      // Deep includes everything — both $1 and $2 tabs
       setStudyState('deep')
+      quickTabs.forEach(tabId => {
+        if (!tabStates[tabId] || tabStates[tabId].status !== 'done') queueTab(tabId)
+      })
       deepTabs.forEach(tabId => {
         if (!tabStates[tabId] || tabStates[tabId].status !== 'done') queueTab(tabId)
       })
+      setActiveTab(quickTabs.find(t => t !== 'overview') || deepTabs[0] || 'overview')
     }
   }
 
@@ -1427,6 +1442,7 @@ export default function StudyPage() {
           tier={modal}
           passage={passage}
           roles={roles}
+          alreadyPaidQuick={modal === 'deep' && studyState === 'quick'}
           onClose={() => setModal(null)}
           onSuccess={() => handlePaymentSuccess(modal)}
         />
@@ -1469,38 +1485,57 @@ export default function StudyPage() {
             onClick={() => handleTabClick('overview')}
           />
           {studyState === 'free' && (
-            <button
-              onClick={unlockQuick}
-              style={{
-                marginLeft:   'auto',
-                background:   GOLD,
-                color:        INK,
-                border:       'none',
-                borderRadius: 6,
-                padding:      '7px 20px',
-                fontSize:     13,
-                fontWeight:   700,
-                cursor:       'pointer',
-                fontFamily:   SANS,
-                whiteSpace:   'nowrap' as const,
-                flexShrink:   0,
-              }}
-            >
-              Quick Study — $1 🔒
-            </button>
+            <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, flexShrink: 0 }}>
+              <button
+                onClick={unlockQuick}
+                style={{
+                  background:   GOLD,
+                  color:        INK,
+                  border:       'none',
+                  borderRadius: 6,
+                  padding:      '7px 16px',
+                  fontSize:     13,
+                  fontWeight:   700,
+                  cursor:       'pointer',
+                  fontFamily:   SANS,
+                  whiteSpace:   'nowrap' as const,
+                }}
+              >
+                Quick Study — $1 🔒
+              </button>
+              {deepTabs.length > 0 && (
+                <button
+                  onClick={unlockDeep}
+                  style={{
+                    background:   PURPLE,
+                    color:        INK,
+                    border:       'none',
+                    borderRadius: 6,
+                    padding:      '7px 16px',
+                    fontSize:     13,
+                    fontWeight:   700,
+                    cursor:       'pointer',
+                    fontFamily:   SANS,
+                    whiteSpace:   'nowrap' as const,
+                  }}
+                >
+                  Deep Dive — $2 🔒
+                </button>
+              )}
+            </div>
           )}
         </div>
 
         {/* Teaser row in free state */}
         {studyState === 'free' && (
           <div style={{ padding: '6px 20px 8px', background: 'rgba(255,255,255,0.01)', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' as const }}>
-            <span style={{ fontSize: 11, color: SLATE }}>Unlocks:</span>
+            <span style={{ fontSize: 11, color: GOLD }}>$1 unlocks:</span>
             {quickTabs.filter(t => t !== 'overview').map(tabId => (
               <span key={tabId} style={{ fontSize: 11, color: 'rgba(201,151,58,0.5)', background: 'rgba(201,151,58,0.04)', border: '0.5px solid rgba(201,151,58,0.12)', borderRadius: 4, padding: '2px 8px' }}>{TAB_LABELS[tabId]}</span>
             ))}
             {deepTabs.length > 0 && (
               <>
-                <span style={{ fontSize: 11, color: SLATE, marginLeft: 4 }}>+ with $2:</span>
+                <span style={{ fontSize: 11, color: PURPLE, marginLeft: 8 }}>$2 unlocks everything:</span>
                 {deepTabs.slice(0, 4).map(tabId => (
                   <span key={tabId} style={{ fontSize: 11, color: 'rgba(167,139,250,0.5)', background: 'rgba(167,139,250,0.04)', border: '0.5px solid rgba(167,139,250,0.12)', borderRadius: 4, padding: '2px 8px' }}>{TAB_LABELS[tabId]}</span>
                 ))}
@@ -1533,7 +1568,7 @@ export default function StudyPage() {
                     whiteSpace:   'nowrap' as const,
                   }}
                 >
-                  Scholarly Depth — $2 🔒
+                  Add Deep Dive — +$1 🔒
                 </button>
               )}
             </div>
@@ -1643,7 +1678,10 @@ export default function StudyPage() {
         {/* Teaser row in quick state */}
         {studyState === 'quick' && deepTabs.length > 0 && (
           <div style={{ padding: '6px 20px 8px', background: 'rgba(167,139,250,0.02)', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' as const }}>
-            <span style={{ fontSize: 11, color: SLATE }}>Unlock with $2 for full scholarly depth</span>
+            <span style={{ fontSize: 11, color: SLATE }}>Add $1 more for full scholarly depth:</span>
+            {deepTabs.map(tabId => (
+              <span key={tabId} style={{ fontSize: 11, color: 'rgba(167,139,250,0.5)', background: 'rgba(167,139,250,0.04)', border: '0.5px solid rgba(167,139,250,0.12)', borderRadius: 4, padding: '2px 8px' }}>{TAB_LABELS[tabId]}</span>
+            ))}
           </div>
         )}
       </div>
