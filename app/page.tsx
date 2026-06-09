@@ -1097,10 +1097,22 @@ export default function StudyPage() {
   const roles        = rolesParam.split(',').filter(Boolean) as Role[]
 
   const { quick: quickTabs, deep: deepTabs } = getTabsForRoles(roles)
-  const allTabs = [...quickTabs, ...deepTabs]
 
-  const [tabStates, setTabStates]       = useState<Record<string, TabState>>(() => {
-    // Restore from localStorage on mount
+  // ── Study state ───────────────────────────────────────────────────────────
+  // free     = Overview only (anonymous, no cost)
+  // quick    = All $1 Haiku tabs unlocked
+  // deep     = All $2 Sonnet tabs unlocked
+  type StudyState = 'free' | 'quick' | 'deep'
+
+  const [studyState, setStudyState] = useState<StudyState>(() => {
+    if (typeof window === 'undefined') return 'free'
+    try {
+      const key = `pl_state_${passage}_${rolesParam}`
+      return (localStorage.getItem(key) as StudyState) || 'free'
+    } catch { return 'free' }
+  })
+
+  const [tabStates, setTabStates] = useState<Record<string, TabState>>(() => {
     if (typeof window === 'undefined') return {}
     try {
       const key = `pl_study_${passage}_${rolesParam}`
@@ -1108,58 +1120,87 @@ export default function StudyPage() {
       return saved ? JSON.parse(saved) : {}
     } catch { return {} }
   })
+
   const [bibleText, setBibleText]       = useState<any>(null)
   const [bibleVersion, setBibleVersion] = useState('kjv')
-  const [activeTab, setActiveTab]       = useState('')
+  const [activeTab, setActiveTab]       = useState('overview')
   const [currentlyGenerating, setCurrentlyGenerating] = useState<string | null>(null)
   const generationQueue                  = useRef<string[]>([])
   const isProcessingQueue                = useRef(false)
   const hasInit                          = useRef(false)
 
-  // Persist tab data to localStorage so navigation doesn't lose work
+  // Persist tab data and study state to localStorage
   useEffect(() => {
     if (typeof window === 'undefined') return
     try {
-      const key = `pl_study_${passage}_${rolesParam}`
-      localStorage.setItem(key, JSON.stringify(tabStates))
+      localStorage.setItem(`pl_study_${passage}_${rolesParam}`, JSON.stringify(tabStates))
+      localStorage.setItem(`pl_state_${passage}_${rolesParam}`, studyState)
     } catch {}
-  }, [tabStates])
+  }, [tabStates, studyState])
 
-  // Auto-generate Overview + Scripture on load (skip if already cached in localStorage)
+  // On load — always generate Overview free, restore prior state if available
   useEffect(() => {
     if (hasInit.current) return
     hasInit.current = true
-    if (!tabStates['overview'] || tabStates['overview'].status !== 'done') queueTab('overview')
-    if (!tabStates['scripture'] || tabStates['scripture'].status !== 'done') queueTab('scripture')
-    // Set active tab to overview, or first done tab if restoring
-    const firstDone = Object.keys(tabStates).find(t => tabStates[t].status === 'done')
+
+    // Always generate Overview (free)
+    if (!tabStates['overview'] || tabStates['overview'].status !== 'done') {
+      queueTab('overview')
+    }
+
+    // If restoring from localStorage with deeper state, re-queue missing tabs
+    if (studyState === 'quick' || studyState === 'deep') {
+      quickTabs.forEach(tabId => {
+        if (!tabStates[tabId] || tabStates[tabId].status !== 'done') queueTab(tabId)
+      })
+    }
+    if (studyState === 'deep') {
+      deepTabs.forEach(tabId => {
+        if (!tabStates[tabId] || tabStates[tabId].status !== 'done') queueTab(tabId)
+      })
+    }
+
+    const firstDone = Object.keys(tabStates).find(t => tabStates[t]?.status === 'done')
     setActiveTab(firstDone || 'overview')
   }, [])
 
-  // ── Queue system — one tab at a time, sequential ────────────────────────
-  // Prevents rate limit errors and ensures prompt caching works correctly
-  // (each tab's cache write is read by the next tab in sequence)
+  // ── Queue system ─────────────────────────────────────────────────────────
+  // Sequential — one tab at a time, error-resilient
+  // Auto-queues all $1 tabs on load
+  // $2 tabs queued when user clicks "Generate All $2" or individual tab
 
   function queueTab(tabId: string) {
-    // Don't queue if already done, generating, or already in queue
     const state = tabStates[tabId]
     if (state?.status === 'done' || state?.status === 'generating') return
     if (generationQueue.current.includes(tabId)) return
-
     generationQueue.current.push(tabId)
-
-    // Mark as queued visually
     setTabStates(prev => ({
       ...prev,
       [tabId]: prev[tabId]?.status === 'done'
         ? prev[tabId]
         : { status: 'idle', data: null, cached: false }
     }))
+    if (!isProcessingQueue.current) processQueue()
+  }
 
-    // Start processing if not already running
-    if (!isProcessingQueue.current) {
-      processQueue()
-    }
+  function unlockQuick() {
+    setStudyState('quick')
+    quickTabs.forEach(tabId => {
+      if (!tabStates[tabId] || tabStates[tabId].status !== 'done') queueTab(tabId)
+    })
+    setActiveTab(quickTabs[0] || 'overview')
+  }
+
+  function unlockDeep() {
+    setStudyState('deep')
+    deepTabs.forEach(tabId => {
+      if (!tabStates[tabId] || tabStates[tabId].status !== 'done') queueTab(tabId)
+    })
+    // Don't change active tab — let user keep reading what they have
+  }
+
+  function queueAllDeep() {
+    unlockDeep()
   }
 
   async function processQueue() {
@@ -1169,6 +1210,10 @@ export default function StudyPage() {
     while (generationQueue.current.length > 0) {
       const tabId = generationQueue.current.shift()!
       await generateTab(tabId)
+      // Small pause between tabs to avoid rate limiting
+      if (generationQueue.current.length > 0) {
+        await new Promise(r => setTimeout(r, 300))
+      }
     }
 
     isProcessingQueue.current = false
@@ -1196,6 +1241,7 @@ export default function StudyPage() {
           ...prev,
           [tabId]: { status: 'error', data: null, cached: false }
         }))
+        // Don't stall queue on error — continue to next tab
         return
       }
 
@@ -1212,6 +1258,7 @@ export default function StudyPage() {
         ...prev,
         [tabId]: { status: 'error', data: null, cached: false }
       }))
+      // Continue queue even after network error
     }
   }
 
@@ -1225,9 +1272,8 @@ export default function StudyPage() {
 
   const activeState  = tabStates[activeTab]
   const isDeepActive = deepTabs.includes(activeTab)
-
-  // This month's spend — placeholder until auth is wired
-  const studiesDone = Object.values(tabStates).filter(s => s.status === 'done').length
+  const doneCount    = Object.values(tabStates).filter(s => s.status === 'done').length
+  const isGenerating = currentlyGenerating !== null
 
   return (
     <div style={S.page}>
@@ -1246,55 +1292,119 @@ export default function StudyPage() {
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <span style={{ fontSize: 12, color: SLATE }}>
-            {currentlyGenerating
-              ? `Generating ${TAB_LABELS[currentlyGenerating] || currentlyGenerating}… ${generationQueue.current.length > 0 ? `(${generationQueue.current.length} queued)` : ''}`
-              : `${Object.values(tabStates).filter(s => s.status === 'done').length} tabs ready`
+            {isGenerating
+              ? `Generating ${TAB_LABELS[currentlyGenerating!] || currentlyGenerating}… ${generationQueue.current.length > 0 ? `(${generationQueue.current.length} queued)` : ''}`
+              : `${doneCount} tab${doneCount !== 1 ? 's' : ''} ready`
             }
           </span>
         </div>
       </nav>
 
-      {/* How it works banner */}
-      <div style={{
-        background:   'rgba(201,151,58,0.06)',
-        borderBottom: '1px solid rgba(201,151,58,0.15)',
-        padding:      '10px 24px',
-        display:      'flex',
-        alignItems:   'center',
-        gap:          12,
-      }}>
-        <span style={{ fontSize: 13, color: GOLD, flexShrink: 0 }}>📖</span>
-        <span style={{ fontSize: 12, color: SLATE, lineHeight: 1.5 }}>
-          <span style={{ color: PARCHMENT, fontWeight: 600 }}>How PassageLab works: </span>
-          Overview and Scripture load automatically. Click any tab to generate it.
-          {' '}<span style={{ color: GOLD }}>$1 tabs</span> use fast AI for practical content.
-          {' '}<span style={{ color: PURPLE }}>$2 tabs</span> use advanced AI for scholarly depth.
-          {' '}<span style={{ color: GOLD }}>⚡</span> = served from library cache at no extra cost.
-          Tabs are generated one at a time for best quality.
-        </span>
-      </div>
-
-      {/* $1 tabs */}
+      {/* Three-state tab header */}
       <div style={{ borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
-        <div style={S.tabRowLabel}>$1 — Practical Study</div>
-        <div style={S.tabRow}>
-          {quickTabs.map(tabId => (
-            <TabButton
-              key={tabId}
-              tabId={tabId}
-              status={tabStates[tabId]?.status || 'idle'}
-              isDeep={false}
-              isActive={activeTab === tabId}
-              cached={tabStates[tabId]?.cached || false}
-              onClick={() => handleTabClick(tabId)}
-            />
-          ))}
+
+        {/* Free row — Overview always visible + Quick Study CTA */}
+        <div style={{ display: 'flex', alignItems: 'center', padding: '0 16px', background: 'rgba(255,255,255,0.02)', borderBottom: '0.5px solid rgba(255,255,255,0.06)', minHeight: 44 }}>
+          <div style={{ fontSize: 10, color: SLATE, textTransform: 'uppercase' as const, letterSpacing: '1px', fontWeight: 600, marginRight: 8, paddingTop: 2, whiteSpace: 'nowrap' as const }}>Free</div>
+          <TabButton
+            tabId="overview"
+            status={tabStates['overview']?.status || 'idle'}
+            isDeep={false}
+            isActive={activeTab === 'overview'}
+            cached={tabStates['overview']?.cached || false}
+            onClick={() => handleTabClick('overview')}
+          />
+          {studyState === 'free' && (
+            <button
+              onClick={unlockQuick}
+              disabled={isGenerating}
+              style={{
+                marginLeft:   'auto',
+                background:   GOLD,
+                color:        INK,
+                border:       'none',
+                borderRadius: 6,
+                padding:      '7px 20px',
+                fontSize:     13,
+                fontWeight:   700,
+                cursor:       isGenerating ? 'not-allowed' : 'pointer',
+                opacity:      isGenerating ? 0.5 : 1,
+                fontFamily:   SANS,
+                whiteSpace:   'nowrap' as const,
+                flexShrink:   0,
+              }}
+            >
+              Quick Study — $1
+            </button>
+          )}
         </div>
 
-        {/* $2 tabs */}
-        {deepTabs.length > 0 && (
-          <>
-            <div style={S.tabRowLabel}>$2 — Scholarly Depth</div>
+        {/* Teaser row in free state */}
+        {studyState === 'free' && (
+          <div style={{ padding: '6px 20px 8px', background: 'rgba(255,255,255,0.01)', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' as const }}>
+            <span style={{ fontSize: 11, color: SLATE }}>Unlocks:</span>
+            {quickTabs.filter(t => t !== 'overview').map(tabId => (
+              <span key={tabId} style={{ fontSize: 11, color: 'rgba(201,151,58,0.5)', background: 'rgba(201,151,58,0.04)', border: '0.5px solid rgba(201,151,58,0.12)', borderRadius: 4, padding: '2px 8px' }}>{TAB_LABELS[tabId]}</span>
+            ))}
+            {deepTabs.length > 0 && (
+              <>
+                <span style={{ fontSize: 11, color: SLATE, marginLeft: 4 }}>+ with $2:</span>
+                {deepTabs.slice(0, 4).map(tabId => (
+                  <span key={tabId} style={{ fontSize: 11, color: 'rgba(167,139,250,0.5)', background: 'rgba(167,139,250,0.04)', border: '0.5px solid rgba(167,139,250,0.12)', borderRadius: 4, padding: '2px 8px' }}>{TAB_LABELS[tabId]}</span>
+                ))}
+                {deepTabs.length > 4 && <span style={{ fontSize: 11, color: SLATE }}>+{deepTabs.length - 4} more</span>}
+              </>
+            )}
+          </div>
+        )}
+
+        {/* $1 Quick Study row */}
+        {studyState !== 'free' && (
+          <div style={{ background: 'rgba(255,255,255,0.02)', borderBottom: '0.5px solid rgba(255,255,255,0.06)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 20px 0' }}>
+              <span style={{ fontSize: 10, color: GOLD, textTransform: 'uppercase' as const, letterSpacing: '1px', fontWeight: 600 }}>$1 — Practical Study</span>
+              {studyState === 'quick' && deepTabs.length > 0 && (
+                <button
+                  onClick={unlockDeep}
+                  disabled={isGenerating}
+                  style={{
+                    background:   PURPLE,
+                    color:        INK,
+                    border:       'none',
+                    borderRadius: 6,
+                    padding:      '5px 16px',
+                    fontSize:     12,
+                    fontWeight:   700,
+                    cursor:       isGenerating ? 'not-allowed' : 'pointer',
+                    opacity:      isGenerating ? 0.5 : 1,
+                    fontFamily:   SANS,
+                    whiteSpace:   'nowrap' as const,
+                  }}
+                >
+                  Scholarly Depth — $2
+                </button>
+              )}
+            </div>
+            <div style={S.tabRow}>
+              {quickTabs.filter(t => t !== 'overview').map(tabId => (
+                <TabButton
+                  key={tabId}
+                  tabId={tabId}
+                  status={tabStates[tabId]?.status || 'idle'}
+                  isDeep={false}
+                  isActive={activeTab === tabId}
+                  cached={tabStates[tabId]?.cached || false}
+                  onClick={() => handleTabClick(tabId)}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* $2 Scholarly Depth row */}
+        {studyState === 'deep' && deepTabs.length > 0 && (
+          <div style={{ background: 'rgba(167,139,250,0.03)' }}>
+            <div style={{ fontSize: 10, color: PURPLE, textTransform: 'uppercase' as const, letterSpacing: '1px', fontWeight: 600, padding: '6px 20px 0' }}>$2 — Scholarly Depth</div>
             <div style={S.tabRow}>
               {deepTabs.map(tabId => (
                 <TabButton
@@ -1308,12 +1418,23 @@ export default function StudyPage() {
                 />
               ))}
             </div>
-          </>
+          </div>
+        )}
+
+        {/* Teaser row in quick state */}
+        {studyState === 'quick' && deepTabs.length > 0 && (
+          <div style={{ padding: '6px 20px 8px', background: 'rgba(167,139,250,0.02)', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' as const }}>
+            <span style={{ fontSize: 11, color: SLATE }}>Unlock with $2:</span>
+            {deepTabs.map(tabId => (
+              <span key={tabId} style={{ fontSize: 11, color: 'rgba(167,139,250,0.5)', background: 'rgba(167,139,250,0.04)', border: '0.5px solid rgba(167,139,250,0.12)', borderRadius: 4, padding: '2px 8px' }}>{TAB_LABELS[tabId]}</span>
+            ))}
+          </div>
         )}
       </div>
 
       {/* Content */}
       <div style={S.content}>
+
         {/* Generating spinner */}
         {activeState?.status === 'generating' && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '40px 0' }}>
@@ -1337,7 +1458,7 @@ export default function StudyPage() {
           </div>
         )}
 
-        {/* Idle state — not yet generated */}
+        {/* Idle state */}
         {(!activeState || activeState.status === 'idle') && activeTab && (
           <IdlePlaceholder
             tabId={activeTab}
