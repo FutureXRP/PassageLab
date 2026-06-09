@@ -12,75 +12,88 @@ export type Role =
 
 // ─── Role → Tab mapping ────────────────────────────────────────────────────
 
+// ─── Role → Tab mapping ────────────────────────────────────────────────────
+// ALL tabs for a role — pricing is determined entirely by model (Haiku=$1, Sonnet=$2)
+// No artificial quick/deep split — the model IS the pricing rule
+
 export const ROLE_TABS: Record<Role, string[]> = {
-  pastor:     ['overview','scripture','language','history','hermeneutics','christ','apologetics','conflicts','illustrations','outline'],
-  theologian: ['overview','scripture','language','history','hermeneutics','theology','crossrefs','christ','apologetics','conflicts'],
-  teacher:    ['overview','scripture','history','hermeneutics','christ','illustrations','outline','smallgroup','conflicts'],
-  smallgroup: ['overview','scripture','history','christ','illustrations','smallgroup'],
-  youth:      ['overview','scripture','history','christ','illustrations','youth'],
+  pastor:     ['overview','scripture','history','illustrations','outline','leadership',
+               'language','hermeneutics','christ','apologetics','conflicts'],
+  theologian: ['overview','scripture','history',
+               'language','hermeneutics','theology','crossrefs','christ','apologetics','conflicts'],
+  teacher:    ['overview','scripture','history','illustrations','outline','smallgroup','leadership',
+               'hermeneutics','christ','conflicts'],
+  smallgroup: ['overview','scripture','history','illustrations','smallgroup'],
+  youth:      ['overview','scripture','history','illustrations','youth'],
   children:   ['overview','scripture','illustrations','children'],
-  student:    ['overview','scripture','language','history','hermeneutics','theology','crossrefs','essayoutline','apologetics','conflicts'],
+  student:    ['overview','scripture','history','essayoutline','leadership',
+               'language','hermeneutics','theology','crossrefs','apologetics','conflicts'],
 }
 
 export const DEEP_TABS: Record<Role, string[]> = {
-  pastor:     ['commentary','archaeology','fathers','apologetics_deep','books'],
-  theologian: ['commentary','fathers','archaeology','apologetics_deep','books'],
-  teacher:    ['commentary','apologetics_deep','books'],
+  pastor:     ['commentary','archaeology','fathers','books'],
+  theologian: ['commentary','fathers','archaeology','books'],
+  teacher:    ['commentary','books'],
   smallgroup: ['books'],
   youth:      ['books'],
   children:   ['books'],
-  student:    ['commentary','fathers','archaeology','apologetics_deep','books','citations'],
+  student:    ['commentary','fathers','archaeology','books','citations'],
 }
 
-// Tab display order — determines left-to-right tab sequence
+// Tab display order — Haiku tabs first ($1), then Sonnet tabs ($2), then Deep Dive
 const TAB_ORDER = [
-  'overview','scripture','language','history','hermeneutics',
-  'theology','crossrefs','christ','apologetics','conflicts','illustrations','outline',
-  'smallgroup','youth','children','essayoutline',
-  // Deep Dive
-  'commentary','fathers','archaeology','apologetics_deep','books','citations'
+  // Haiku tabs — $1
+  'overview','scripture','history','illustrations','outline','leadership',
+  'smallgroup','youth','children','essayoutline','books','citations',
+  // Sonnet tabs — $2
+  'language','hermeneutics','theology','crossrefs','christ',
+  'apologetics','conflicts',
+  // Deep Dive (always Sonnet) — $2
+  'commentary','fathers','archaeology',
 ]
 
 export function getTabsForRoles(roles: Role[]): { quick: string[], deep: string[] } {
-  const quickSet = new Set<string>()
-  const deepSet = new Set<string>()
+  const allSet = new Set<string>()
   roles.forEach(role => {
-    ROLE_TABS[role]?.forEach(t => quickSet.add(t))
-    DEEP_TABS[role]?.forEach(t => deepSet.add(t))
+    ROLE_TABS[role]?.forEach(t => allSet.add(t))
+    DEEP_TABS[role]?.forEach(t => allSet.add(t))
   })
-  const quick = TAB_ORDER.filter(t => quickSet.has(t))
-  const deep = TAB_ORDER.filter(t => deepSet.has(t))
+  const all = TAB_ORDER.filter(t => allSet.has(t))
+  // Split by model — Haiku = $1 quick, Sonnet = $2 deep
+  const quick = all.filter(t => (TAB_MODELS[t] || 'haiku') === 'haiku')
+  const deep  = all.filter(t => (TAB_MODELS[t] || 'haiku') === 'sonnet')
   return { quick, deep }
 }
 
 // ─── Model routing ─────────────────────────────────────────────────────────
-// Sonnet for deep scholarly tabs, Haiku for structural/creative tabs
+// THIS IS THE PRICING RULE: Haiku = $1 tier, Sonnet = $2 tier
+// No exceptions — model determines price, always
 
 export const TAB_MODELS: Record<string, 'sonnet' | 'haiku'> = {
-  // Sonnet — theological precision required
-  language:        'sonnet',
-  hermeneutics:    'sonnet',
-  christ:          'sonnet',
-  theology:        'sonnet',
-  crossrefs:       'sonnet',
-  commentary:      'sonnet',
-  fathers:         'sonnet',
-  archaeology:     'sonnet',
-  apologetics:     'sonnet',
-  apologetics_deep:'sonnet',
-  conflicts:       'sonnet',
-  // Haiku — structural/creative/practical tasks
-  overview:        'haiku',
-  scripture:       'haiku',
-  history:         'haiku',
-  illustrations:   'haiku',
-  outline:         'haiku',
-  smallgroup:      'haiku',
-  youth:           'haiku',
-  children:        'haiku',
-  essayoutline:    'haiku',
-  books:           'haiku',
-  citations:       'haiku',
+  // Sonnet — $2 tier (theological precision, scholarly depth)
+  language:     'sonnet',
+  hermeneutics: 'sonnet',
+  christ:       'sonnet',
+  theology:     'sonnet',
+  crossrefs:    'sonnet',
+  commentary:   'sonnet',
+  fathers:      'sonnet',
+  archaeology:  'sonnet',
+  apologetics:  'sonnet',
+  conflicts:    'sonnet',
+  // Haiku — $1 tier (structural, creative, practical)
+  overview:     'haiku',
+  scripture:    'haiku',
+  history:      'haiku',
+  illustrations:'haiku',
+  outline:      'haiku',
+  leadership:   'haiku',
+  smallgroup:   'haiku',
+  youth:        'haiku',
+  children:     'haiku',
+  essayoutline: 'haiku',
+  books:        'haiku',
+  citations:    'haiku',
 }
 
 // ─── Token budgets ─────────────────────────────────────────────────────────
@@ -100,6 +113,7 @@ export const TAB_TOKENS: Record<string, number> = {
   conflicts:       3000,
   illustrations:   2000,
   outline:         2000,
+  leadership:      1800,
   smallgroup:      1800,
   youth:           1500,
   children:        1500,
@@ -130,6 +144,22 @@ export const SYSTEM_PROMPT = `You are PassageLab, a world-class biblical researc
 // ─── Tab prompts ───────────────────────────────────────────────────────────
 
 const TAB_PROMPTS: Record<string, (passage: string, bibleText: Record<string, string>) => string> = {
+
+  leadership: (p, b) => `${passageBlock(p, b)}You are an experienced leadership development coach and pastor. Generate a complete leadership application study — how does this passage speak specifically to the challenges, character, and responsibilities of leading people? Return JSON:
+{"leadership":{
+  "principle":"The single most important leadership insight this passage contains — stated as a memorable, actionable principle a leader can carry all week",
+  "inner_life":"3-4 sentences on what this passage reveals about the inner world of a leader — character, motives, fears, identity. What does this text say about who a leader must be, not just what they must do?",
+  "leading_through_it":"3-4 sentences on how to bring this passage's truth into the practical leadership of a team, staff, or organization — concrete and specific",
+  "blind_spot":"2-3 sentences on what leaders specifically tend to miss or resist in this passage — the truth that is hardest for people in authority to receive",
+  "difficult_conversations":"2-3 sentences on how the truth of this passage applies when you must say something hard to someone you lead — what does this text give you for that moment?",
+  "team_questions":[
+    "Question for a leadership team or staff devotional — designed for leaders, not a general congregation",
+    "Second question going deeper into leadership application",
+    "Third question connecting to current organizational or team challenges",
+    "Fourth question about personal leadership character growth"
+  ],
+  "weekly_practice":"One specific, concrete leadership practice or habit to carry from this passage into the coming week of leading — something a leader can actually do"
+}}`,
 
   overview: (p, b) => `${passageBlock(p, b)}Return JSON:
 {"overview":{
@@ -573,11 +603,20 @@ export function getTabTokens(tabId: string): number {
   return TAB_TOKENS[tabId] || 1500
 }
 
+// ─── Pricing ───────────────────────────────────────────────────────────────
+// Haiku tab = $1 study price
+// Sonnet tab = $2 study price
+// Price is per-tab but charged as flat rate per study tier
+
 export function isDeepTab(tabId: string): boolean {
-  return Object.values(DEEP_TABS).some(tabs => tabs.includes(tabId))
+  return (TAB_MODELS[tabId] || 'haiku') === 'sonnet'
+}
+
+export function getTabPrice(tabId: string): number {
+  return isDeepTab(tabId) ? 2.00 : 1.00
 }
 
 export function getStudyPrice(tabIds: string[]): number {
-  const hasDeep = tabIds.some(t => isDeepTab(t))
-  return hasDeep ? 2.00 : 1.00
+  // If any tab in the study is Sonnet, it's a $2 study
+  return tabIds.some(t => isDeepTab(t)) ? 2.00 : 1.00
 }
