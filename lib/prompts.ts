@@ -101,8 +101,8 @@ export const TAB_MODELS: Record<string, 'sonnet' | 'haiku'> = {
 
 export const TAB_TOKENS: Record<string, number> = {
   // Quick tabs
-  overview:        1800,
-  scripture:       3000,
+  overview:        2500,
+  scripture:       3500,
   language:        3500,
   history:         2000,
   hermeneutics:    3000,
