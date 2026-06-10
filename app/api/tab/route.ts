@@ -25,6 +25,7 @@ import {
 } from '@/lib/usage'
 import { getAuthUser } from '@/lib/auth'
 import { rateLimit, clientIp } from '@/lib/rate-limit'
+import { parseModelJson } from '@/lib/json-repair'
 
 export const maxDuration = 60
 
@@ -233,40 +234,7 @@ export async function POST(req: NextRequest) {
 
     let parsed: Record<string, unknown>
     try {
-      const start = cleaned.indexOf('{')
-      if (start === -1) throw new Error('No JSON found')
-      let str = cleaned.slice(start)
-
-      // Strategy 1: direct parse
-      try { parsed = JSON.parse(str) }
-      catch {
-        // Strategy 2: find last complete } 
-        const end = str.lastIndexOf('}')
-        if (end === -1) throw new Error('No closing brace')
-        try { parsed = JSON.parse(str.slice(0, end + 1)) }
-        catch {
-          // Strategy 3: truncated JSON recovery — close any open structures
-          // Count open braces/brackets and close them
-          let depth = 0, inString = false, escape = false
-          let lastGoodPos = 0
-          for (let i = 0; i < str.length; i++) {
-            const ch = str[i]
-            if (escape)                   { escape = false; continue }
-            if (ch === '\\' && inString)  { escape = true;  continue }
-            if (ch === '"')               { inString = !inString; continue }
-            if (inString)                 continue
-            if (ch === '{' || ch === '[') depth++
-            if (ch === '}' || ch === ']') { depth--; if (depth === 0) lastGoodPos = i }
-          }
-          // Try up to the last balanced position
-          if (lastGoodPos > 0) {
-            try { parsed = JSON.parse(str.slice(0, lastGoodPos + 1)) }
-            catch { throw new Error('Recovery failed') }
-          } else {
-            throw new Error('No balanced JSON found')
-          }
-        }
-      }
+      parsed = parseModelJson(cleaned)
     } catch {
       console.error(`Parse error on tab ${tabId}. Truncated: ${truncated}. Raw first 800 chars:`)
       console.error(rawText.slice(0, 800))

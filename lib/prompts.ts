@@ -121,7 +121,8 @@ export const TAB_TOKENS: Record<string, number> = {
   // Deep Dive tabs
   commentary:      3500,
   fathers:         3000,
-  archaeology:     3500,
+  // Archaeology runs long (4 detailed discoveries) — was hitting max_tokens
+  archaeology:     4500,
   apologetics_deep:4000,
   books:           2000,
   citations:       1500,
