@@ -127,6 +127,25 @@ create table if not exists public.waitlist (
   created_at  timestamptz not null default now()
 );
 
+-- ─── Saved studies ───────────────────────────────────────────────────────────
+-- Generated tab content a user has saved to their account, so studies
+-- survive across devices (localStorage is per-browser).
+
+create table if not exists public.saved_studies (
+  id          uuid primary key default gen_random_uuid(),
+  user_id     uuid not null references public.profiles (id) on delete cascade,
+  passage     text not null,
+  roles       text[] not null default '{}',
+  roles_key   text not null,                 -- sorted roles, e.g. 'pastor+theologian'
+  tabs        jsonb not null default '{}'::jsonb,   -- { tabId: content }
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now(),
+  unique (user_id, passage, roles_key)
+);
+
+create index if not exists saved_studies_user_idx
+  on public.saved_studies (user_id, updated_at desc);
+
 -- ─── Affiliate clicks (Books tab) ────────────────────────────────────────────
 
 create table if not exists public.affiliate_clicks (
@@ -196,6 +215,24 @@ alter table public.study_cache      enable row level security;
 alter table public.bible_cache      enable row level security;
 alter table public.waitlist         enable row level security;
 alter table public.affiliate_clicks enable row level security;
+alter table public.saved_studies    enable row level security;
+
+-- Users own their saved studies outright (read, save, update, delete)
+drop policy if exists "saved_studies_select_own" on public.saved_studies;
+create policy "saved_studies_select_own" on public.saved_studies
+  for select using (auth.uid() = user_id);
+
+drop policy if exists "saved_studies_insert_own" on public.saved_studies;
+create policy "saved_studies_insert_own" on public.saved_studies
+  for insert with check (auth.uid() = user_id);
+
+drop policy if exists "saved_studies_update_own" on public.saved_studies;
+create policy "saved_studies_update_own" on public.saved_studies
+  for update using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+drop policy if exists "saved_studies_delete_own" on public.saved_studies;
+create policy "saved_studies_delete_own" on public.saved_studies
+  for delete using (auth.uid() = user_id);
 
 -- Users can read and update their own profile
 drop policy if exists "profiles_select_own" on public.profiles;

@@ -36,6 +36,13 @@ interface BillingRow {
   status: string
 }
 
+interface SavedStudyRow {
+  id: string
+  passage: string
+  roles: string[]
+  updated_at: string
+}
+
 const card: React.CSSProperties = {
   background: 'rgba(255,255,255,0.03)',
   border: '0.5px solid rgba(255,255,255,0.08)',
@@ -68,6 +75,7 @@ export default function AccountPage() {
   const [userId, setUserId]     = useState<string | null>(null)
   const [profile, setProfile]   = useState<ProfileRow | null>(null)
   const [billing, setBilling]   = useState<BillingRow[]>([])
+  const [savedStudies, setSavedStudies] = useState<SavedStudyRow[]>([])
   const [monthSpend, setMonthSpend] = useState(0)
   const [quickCount, setQuickCount] = useState(0)
   const [deepCount, setDeepCount]   = useState(0)
@@ -87,7 +95,7 @@ export default function AccountPage() {
     if (!supabase) return
     const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString()
 
-    const [profileRes, usageRes, billingRes] = await Promise.all([
+    const [profileRes, usageRes, billingRes, studiesRes] = await Promise.all([
       supabase.from('profiles')
         .select('email, full_name, card_last4, card_brand, monthly_spending_limit')
         .eq('id', uid).single(),
@@ -101,6 +109,11 @@ export default function AccountPage() {
         .eq('user_id', uid)
         .order('billing_period', { ascending: false })
         .limit(12),
+      supabase.from('saved_studies')
+        .select('id, passage, roles, updated_at')
+        .eq('user_id', uid)
+        .order('updated_at', { ascending: false })
+        .limit(100),
     ])
 
     if (profileRes.data) {
@@ -112,6 +125,13 @@ export default function AccountPage() {
     setQuickCount(events.filter(e => e.study_type === 'quick').length)
     setDeepCount(events.filter(e => e.study_type === 'deep').length)
     setBilling(billingRes.data || [])
+    setSavedStudies(studiesRes.data || [])
+  }
+
+  async function deleteStudy(id: string) {
+    if (!supabase) return
+    await supabase.from('saved_studies').delete().eq('id', id)
+    setSavedStudies(prev => prev.filter(s => s.id !== id))
   }
 
   useEffect(() => {
@@ -255,6 +275,38 @@ export default function AccountPage() {
                 {limitSaved && <span style={{ fontSize: 13, color: '#34D399' }}>Saved ✓</span>}
               </div>
               {error && <div style={{ fontSize: 13, color: '#F87171', marginTop: 10 }}>{error}</div>}
+            </div>
+
+            {/* Saved studies */}
+            <div style={card}>
+              <div style={secTitle}>Saved Studies</div>
+              {savedStudies.length === 0 && (
+                <div style={{ fontSize: 13, color: SLATE }}>
+                  No saved studies yet — open a study and click &quot;Save Study&quot; to keep it on your account across devices.
+                </div>
+              )}
+              {savedStudies.map(s => (
+                <div key={s.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '0.5px solid rgba(255,255,255,0.06)', gap: 12 }}>
+                  <div style={{ minWidth: 0 }}>
+                    <Link
+                      href={`/study/${encodeURIComponent(s.passage)}?roles=${s.roles.join(',')}`}
+                      style={{ fontSize: 14, fontWeight: 600, color: GOLD, textDecoration: 'none', fontFamily: SERIF, fontStyle: 'italic' }}
+                    >
+                      {s.passage}
+                    </Link>
+                    <div style={{ fontSize: 12, color: SLATE }}>
+                      {s.roles.map(r => r.charAt(0).toUpperCase() + r.slice(1)).join(' + ')} · saved {new Date(s.updated_at).toLocaleDateString()}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => deleteStudy(s.id)}
+                    title="Remove from saved studies"
+                    style={{ background: 'none', border: '1px solid rgba(255,255,255,0.12)', color: SLATE, borderRadius: 6, padding: '4px 10px', fontSize: 11, cursor: 'pointer', fontFamily: SANS, flexShrink: 0 }}
+                  >
+                    Remove
+                  </button>
+                </div>
+              ))}
             </div>
 
             {/* Billing history */}

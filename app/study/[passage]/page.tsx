@@ -1632,9 +1632,12 @@ export default function StudyPage() {
   const [activeTab, setActiveTab]       = useState('overview')
   const [currentlyGenerating, setCurrentlyGenerating] = useState<string | null>(null)
   const [modal, setModal]               = useState<'quick' | 'deep' | null>(null)
+  const [saveState, setSaveState]       = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const generationQueue                  = useRef<string[]>([])
   const isProcessingQueue                = useRef(false)
   const hasInit                          = useRef(false)
+
+  const rolesKey = [...roles].sort().join('+')
 
   // Handle Stripe return — auto-unlock if payment succeeded
   useEffect(() => {
@@ -1685,6 +1688,78 @@ export default function StudyPage() {
     const firstDone = Object.keys(tabStates).find(t => tabStates[t]?.status === 'done')
     setActiveTab(firstDone || 'overview')
   }, [])
+
+  // Restore a saved study from the account (cross-device) when this browser
+  // has no local copy
+  useEffect(() => {
+    async function hydrateFromAccount() {
+      if (!supabase) return
+      const hasLocalContent = Object.values(tabStates).some(s => s.status === 'done')
+      if (hasLocalContent) return
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.user) return
+
+      const { data } = await supabase
+        .from('saved_studies')
+        .select('tabs')
+        .eq('user_id', session.user.id)
+        .eq('passage', passage)
+        .eq('roles_key', rolesKey)
+        .maybeSingle()
+
+      const savedTabs = data?.tabs as Record<string, Record<string, unknown>> | undefined
+      if (!savedTabs || Object.keys(savedTabs).length === 0) return
+
+      setTabStates(prev => {
+        const merged: Record<string, TabState> = {}
+        for (const [id, content] of Object.entries(savedTabs)) {
+          merged[id] = { status: 'done', data: content, cached: true }
+        }
+        // Anything this browser already finished or started wins
+        for (const [id, s] of Object.entries(prev)) {
+          if (s.status !== 'idle') merged[id] = s
+        }
+        return merged
+      })
+
+      const ids = Object.keys(savedTabs)
+      if (ids.some(id => deepTabs.includes(id))) setStudyState('deep')
+      else if (ids.some(id => quickTabs.includes(id) && id !== 'overview')) {
+        setStudyState(s => (s === 'deep' ? s : 'quick'))
+      }
+      setSaveState('saved')
+    }
+    hydrateFromAccount()
+  }, [])
+
+  // ── Save study to account ─────────────────────────────────────────────────
+
+  async function saveStudy() {
+    if (!supabase) return
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session?.user) {
+      // Sign in on the account page, then come back and save
+      window.location.href = '/account'
+      return
+    }
+    setSaveState('saving')
+
+    const tabs: Record<string, unknown> = {}
+    for (const [id, s] of Object.entries(tabStates)) {
+      if (s.status === 'done' && s.data) tabs[id] = s.data
+    }
+
+    const { error } = await supabase.from('saved_studies').upsert({
+      user_id:    session.user.id,
+      passage,
+      roles,
+      roles_key:  rolesKey,
+      tabs,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'user_id,passage,roles_key' })
+
+    setSaveState(error ? 'error' : 'saved')
+  }
 
   // ── Queue system ─────────────────────────────────────────────────────────
   // Sequential — one tab at a time, error-resilient
@@ -1846,7 +1921,21 @@ export default function StudyPage() {
 
   return (
     <div style={S.page}>
-      <style>{`@keyframes spin { to { transform: rotate(360deg) } } button:hover { opacity: 0.85 }`}</style>
+      <style>{`
+        @keyframes spin { to { transform: rotate(360deg) } }
+        button:hover { opacity: 0.85 }
+        .print-view { display: none; }
+        @media print {
+          .screen-view { display: none !important; }
+          .print-view { display: block !important; }
+          /* !important stylesheet rules beat the app's dark inline styles,
+             so print comes out black-on-white */
+          body, body * { background: transparent !important; color: #111 !important; border-color: #bbb !important; }
+          body { background: #fff !important; }
+          .print-tab { page-break-before: always; }
+          .print-tab:first-of-type { page-break-before: auto; }
+        }
+      `}</style>
 
       {/* Payment modal */}
       {modal && (
@@ -1861,7 +1950,7 @@ export default function StudyPage() {
       )}
 
       {/* Nav */}
-      <nav style={S.nav}>
+      <nav className="screen-view" style={S.nav}>
         <div style={S.logo}>
           Passage<span style={{ color: GOLD }}>Lab</span>
         </div>
@@ -1878,12 +1967,29 @@ export default function StudyPage() {
               : `${doneCount} tab${doneCount !== 1 ? 's' : ''} ready`
             }
           </span>
+          {doneCount > 0 && (
+            <>
+              <button
+                onClick={saveStudy}
+                disabled={saveState === 'saving'}
+                style={{ fontSize: 12, color: saveState === 'saved' ? '#34D399' : GOLD, background: 'none', border: `1px solid ${saveState === 'saved' ? 'rgba(52,211,153,0.3)' : 'rgba(201,151,58,0.3)'}`, borderRadius: 6, padding: '4px 12px', cursor: 'pointer', fontFamily: SANS }}
+              >
+                {saveState === 'saving' ? 'Saving…' : saveState === 'saved' ? 'Saved ✓' : saveState === 'error' ? 'Save failed — retry' : 'Save Study'}
+              </button>
+              <button
+                onClick={() => window.print()}
+                style={{ fontSize: 12, color: GOLD, background: 'none', border: '1px solid rgba(201,151,58,0.3)', borderRadius: 6, padding: '4px 12px', cursor: 'pointer', fontFamily: SANS }}
+              >
+                Print / PDF
+              </button>
+            </>
+          )}
           <a href="/account" style={{ fontSize: 12, color: GOLD, textDecoration: 'none', border: '1px solid rgba(201,151,58,0.3)', borderRadius: 6, padding: '4px 12px' }}>Account</a>
         </div>
       </nav>
 
       {/* Three-state tab header */}
-      <div style={{ borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+      <div className="screen-view" style={{ borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
 
         {/* Free row */}
         <div style={{ display: 'flex', alignItems: 'center', padding: '0 16px', background: 'rgba(255,255,255,0.02)', borderBottom: '0.5px solid rgba(255,255,255,0.06)', minHeight: 44 }}>
@@ -2100,7 +2206,7 @@ export default function StudyPage() {
       </div>
 
       {/* Content */}
-      <div style={S.content}>
+      <div className="screen-view" style={S.content}>
 
         {/* Generating spinner */}
         {activeState?.status === 'generating' && (
@@ -2162,6 +2268,36 @@ export default function StudyPage() {
             <SourceFooter tabId={activeTab} cached={activeState.cached} />
           </>
         )}
+      </div>
+
+      {/* Print / PDF view — hidden on screen, becomes the whole document
+          when printing (browser print → Save as PDF) */}
+      <div className="print-view" style={{ padding: 24, fontFamily: SANS }}>
+        <div style={{ fontFamily: SERIF, fontSize: 26, fontWeight: 700, marginBottom: 4 }}>
+          PassageLab — {passage}
+        </div>
+        <div style={{ fontSize: 12, marginBottom: 8 }}>
+          Roles: {roles.map(r => r.charAt(0).toUpperCase() + r.slice(1)).join(', ')} · Printed {new Date().toLocaleDateString()}
+        </div>
+        <div style={{ fontSize: 11, marginBottom: 24, lineHeight: 1.6 }}>
+          AI-generated study content (Claude, Anthropic). Scripture from public domain translations
+          (KJV, WEB, ASV, YLT). Verify citations and details before academic or published use.
+        </div>
+        {[...quickTabs, ...deepTabs]
+          .filter(tabId => tabStates[tabId]?.status === 'done' && tabStates[tabId]?.data)
+          .map(tabId => (
+            <div key={tabId} className="print-tab" style={{ marginBottom: 32 }}>
+              <div style={{ fontFamily: SERIF, fontSize: 20, fontWeight: 700, marginBottom: 14, paddingBottom: 6, borderBottom: '1px solid #bbb' }}>
+                {TAB_LABELS[tabId] || tabId}
+              </div>
+              <TabContent
+                tabId={tabId}
+                data={tabStates[tabId].data}
+                bibleText={bibleText}
+                bibleVersion={bibleVersion}
+              />
+            </div>
+          ))}
       </div>
     </div>
   )
