@@ -106,7 +106,18 @@ export async function POST(req: NextRequest) {
           cached: true, inputTokens: 0, outputTokens: 0, apiCostEstimate: 0,
         }).catch(() => {})
       }
-      return NextResponse.json({ tabId, data: cached, cached: true, price: studyPrice })
+      // The scripture tab renders the raw passage text — include it on cache hits too
+      let cachedBibleOut: Record<string, string> | null = null
+      if (tabId === 'scripture') {
+        cachedBibleOut = await getCachedBibleText(passage)
+        if (!cachedBibleOut) {
+          try { cachedBibleOut = (await fetchPassageText(passage)) as unknown as Record<string, string> } catch {}
+        }
+      }
+      return NextResponse.json({
+        tabId, data: cached, cached: true, price: studyPrice,
+        ...(cachedBibleOut ? { bibleText: cachedBibleOut } : {}),
+      })
     }
 
     // ── Fetch Bible text ──────────────────────────────────────────────────
@@ -271,6 +282,7 @@ export async function POST(req: NextRequest) {
       data:   parsed,
       cached: false,
       price:  studyPrice,
+      ...(tabId === 'scripture' && bibleText.kjv ? { bibleText } : {}),
       meta: {
         model,
         inputTokens,

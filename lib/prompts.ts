@@ -130,9 +130,10 @@ export const TAB_TOKENS: Record<string, number> = {
 // ─── Bible text injection ──────────────────────────────────────────────────
 
 function passageBlock(passage: string, bibleText: Record<string, string>): string {
-  const text = bibleText?.esv || bibleText?.kjv || Object.values(bibleText || {})[0] || ''
+  // KJV is the primary fetched translation (see lib/bible-api.ts) — label it accurately
+  const text = bibleText?.kjv || bibleText?.web || Object.values(bibleText || {})[0] || ''
   if (text) {
-    return `Passage: "${passage}"\nText (ESV): ${text}\n\n`
+    return `Passage: "${passage}"\nText (KJV): ${text}\n\n`
   }
   return `Passage: "${passage}"\n\n`
 }

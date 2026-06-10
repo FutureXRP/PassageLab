@@ -65,6 +65,24 @@ interface TabState {
   status: TabStatus
   data:   Record<string, unknown> | null
   cached: boolean
+  error?: string
+}
+
+// Friendly messages for HTTP error statuses returned by /api/tab
+function errorMessageForStatus(status: number, serverMessage?: string): string {
+  switch (status) {
+    case 429:
+      return serverMessage || 'Servers are busy right now. Please wait a moment and try again.'
+    case 500:
+      return serverMessage || 'Something went wrong on our end (error 500). Please try again.'
+    case 502:
+    case 503:
+      return serverMessage || 'The service is temporarily unavailable (error ' + status + '). Please try again shortly.'
+    case 504:
+      return 'The server took too long to respond (error 504). This can happen with very long passages — try again, or study a shorter passage.'
+    default:
+      return serverMessage || `Generation failed (error ${status}). Please try again.`
+  }
 }
 
 // ─── Styles ───────────────────────────────────────────────────────────────
@@ -1701,19 +1719,26 @@ export default function StudyPage() {
       [tabId]: { status: 'generating', data: null, cached: false }
     }))
 
+    // Abort if the request outlives the API route's 60s budget —
+    // surfaces as a 504-style timeout message instead of hanging forever
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 90_000)
+
     try {
       const res = await fetch('/api/tab', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({ passage, roles, tabId }),
+        signal:  controller.signal,
       })
 
-      const json = await res.json()
+      // 504s from the gateway return HTML, not JSON — don't let parsing throw
+      const json = await res.json().catch(() => ({}))
 
       if (!res.ok) {
         setTabStates(prev => ({
           ...prev,
-          [tabId]: { status: 'error', data: null, cached: false }
+          [tabId]: { status: 'error', data: null, cached: false, error: errorMessageForStatus(res.status, json?.message) }
         }))
         // Don't stall queue on error — continue to next tab
         return
@@ -1727,12 +1752,17 @@ export default function StudyPage() {
         ...prev,
         [tabId]: { status: 'done', data: json.data, cached: json.cached }
       }))
-    } catch {
+    } catch (err: any) {
+      const message = err?.name === 'AbortError'
+        ? errorMessageForStatus(504)
+        : 'Network error — check your connection and try again.'
       setTabStates(prev => ({
         ...prev,
-        [tabId]: { status: 'error', data: null, cached: false }
+        [tabId]: { status: 'error', data: null, cached: false, error: message }
       }))
       // Continue queue even after network error
+    } finally {
+      clearTimeout(timeout)
     }
   }
 
@@ -2026,7 +2056,9 @@ export default function StudyPage() {
         {/* Error state */}
         {activeState?.status === 'error' && (
           <div style={{ padding: '40px 0', textAlign: 'center' as const }}>
-            <div style={{ color: '#F87171', marginBottom: 16 }}>Generation failed. Please try again.</div>
+            <div style={{ color: '#F87171', marginBottom: 16, maxWidth: 480, margin: '0 auto 16px', lineHeight: 1.6 }}>
+              {activeState.error || 'Generation failed. Please try again.'}
+            </div>
             <button
               onClick={() => queueTab(activeTab)}
               style={{ background: GOLD, color: INK, border: 'none', borderRadius: 8, padding: '10px 24px', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}

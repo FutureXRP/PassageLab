@@ -38,15 +38,16 @@ export async function POST(req: NextRequest) {
       }
 
       // Record usage event for month-end billing
-      await supabase.from('usage_events').insert({
+      const { error: insertError } = await supabase.from('usage_events').insert({
         user_id:    userId,
         passage,
-        roles:      Array.isArray(roles) ? roles : roles.split(','),
+        roles:      Array.isArray(roles) ? roles : typeof roles === 'string' ? roles.split(',') : [],
         tab_ids:    [tier],
         study_type: studyType,
         amount,
         cached:     false,
       })
+      if (insertError) throw insertError
 
       // Update running monthly total on profile
       await supabase.rpc('increment_monthly_total', {

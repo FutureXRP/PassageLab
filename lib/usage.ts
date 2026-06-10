@@ -11,7 +11,7 @@ const supabase = (supabaseUrl && supabaseKey)
   : null
 
 const stripe = process.env.STRIPE_SECRET_KEY
-  ? new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: '2026-05-27.dahlia' as any })
+  ? new Stripe(process.env.STRIPE_SECRET_KEY)
   : null
 
 // ─── Pricing ───────────────────────────────────────────────────────────────
