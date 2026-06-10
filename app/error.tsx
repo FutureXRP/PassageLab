@@ -4,6 +4,7 @@
 // Catches runtime errors in any route segment and shows a branded 500 page
 
 import { useEffect } from 'react'
+import Link from 'next/link'
 
 const SERIF     = "'Playfair Display', Georgia, serif"
 const SANS      = "'DM Sans', system-ui, sans-serif"
@@ -47,12 +48,12 @@ export default function Error({
         >
           Try again
         </button>
-        <a
+        <Link
           href="/"
           style={{ background: 'rgba(255,255,255,0.06)', color: PARCHMENT, border: '1px solid rgba(255,255,255,0.12)', borderRadius: 8, padding: '13px 28px', fontSize: 15, fontWeight: 600, textDecoration: 'none', fontFamily: SANS }}
         >
           Back to home
-        </a>
+        </Link>
       </div>
     </div>
   )

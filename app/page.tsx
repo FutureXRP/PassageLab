@@ -63,7 +63,10 @@ function HomeContent() {
         <div style={{ fontFamily: SERIF, fontSize: 20, fontWeight: 700, color: PARCHMENT }}>
           Passage<span style={{ color: GOLD }}>Lab</span>
         </div>
-        <div style={{ fontSize: 12, color: SLATE }}>AI-powered biblical research for Bible teachers</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
+          <div style={{ fontSize: 12, color: SLATE }}>AI-powered biblical research for Bible teachers</div>
+          <a href="/account" style={{ fontSize: 12, color: GOLD, textDecoration: 'none', border: '1px solid rgba(201,151,58,0.3)', borderRadius: 6, padding: '5px 14px' }}>Account</a>
+        </div>
       </nav>
 
       {/* Hero */}
@@ -200,6 +203,15 @@ function HomeContent() {
         </div>
 
       </div>
+
+      {/* Footer */}
+      <footer style={{ padding: '20px 28px', borderTop: '1px solid rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' as const, gap: 10 }}>
+        <div style={{ fontSize: 12, color: SLATE }}>© {new Date().getFullYear()} PassageLab</div>
+        <div style={{ display: 'flex', gap: 18 }}>
+          <a href="/terms" style={{ fontSize: 12, color: SLATE, textDecoration: 'none' }}>Terms</a>
+          <a href="/privacy" style={{ fontSize: 12, color: SLATE, textDecoration: 'none' }}>Privacy</a>
+        </div>
+      </footer>
     </div>
   )
 }

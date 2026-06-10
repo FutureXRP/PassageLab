@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useSearchParams } from 'next/navigation'
 import { getTabsForRoles, Role } from '@/lib/prompts'
-import { createClient } from '@supabase/supabase-js'
+import { createClient as createBrowserSupabase } from '@/lib/supabase/client'
 import { loadStripe } from '@stripe/stripe-js'
 import { Elements, CardElement, useStripe, useElements } from '@stripe/react-stripe-js'
 
@@ -17,13 +17,11 @@ const INK       = '#0D1117'
 const PURPLE    = '#A78BFA'
 
 // ─── Supabase client ──────────────────────────────────────────────────────
+// Cookie-based (@supabase/ssr) so API routes can authenticate the session
 const supabase = typeof window !== 'undefined' &&
   process.env.NEXT_PUBLIC_SUPABASE_URL &&
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-    ? createClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-      )
+    ? createBrowserSupabase()
     : null
 
 // ─── Stripe ───────────────────────────────────────────────────────────────
@@ -986,7 +984,7 @@ function LeadershipTab({ data }: { data: any }) {
         ))}
       </Sec>
       <div style={S.preach}>
-        <div style={{ fontSize: 10, color: GOLD, textTransform: 'uppercase' as const, letterSpacing: '1px', fontWeight: 600, marginBottom: 5 }}>This Week's Leadership Practice</div>
+        <div style={{ fontSize: 10, color: GOLD, textTransform: 'uppercase' as const, letterSpacing: '1px', fontWeight: 600, marginBottom: 5 }}>This Week&apos;s Leadership Practice</div>
         <p style={{ ...S.bodyTxt, margin: 0 }}>{safeStr(l.weekly_practice)}</p>
       </div>
     </>
@@ -1034,10 +1032,11 @@ function TabContent({ tabId, data, bibleText, bibleVersion }: {
 
 // ─── Card form (inside Stripe Elements) ───────────────────────────────────
 
-function CardForm({ color, onSuccess, onError }: {
-  color:     string
-  onSuccess: (paymentMethodId: string) => void
-  onError:   (msg: string) => void
+function CardForm({ color, clientSecret, onSuccess, onError }: {
+  color:        string
+  clientSecret: string
+  onSuccess:    (setupIntentId: string) => void
+  onError:      (msg: string) => void
 }) {
   const stripe   = useStripe()
   const elements = useElements()
@@ -1049,18 +1048,19 @@ function CardForm({ color, onSuccess, onError }: {
     const cardElement = elements.getElement(CardElement)
     if (!cardElement) { setLoading(false); return }
 
-    const { error, paymentMethod } = await stripe.createPaymentMethod({
-      type: 'card',
-      card: cardElement,
+    // confirmCardSetup verifies the card and runs any 3D Secure / SCA
+    // challenge — required for off-session charges at month end
+    const { error, setupIntent } = await stripe.confirmCardSetup(clientSecret, {
+      payment_method: { card: cardElement },
     })
 
-    if (error) {
-      onError(error.message || 'Card error')
+    if (error || !setupIntent || setupIntent.status !== 'succeeded') {
+      onError(error?.message || 'Card verification failed. Please try again.')
       setLoading(false)
       return
     }
 
-    onSuccess(paymentMethod.id)
+    onSuccess(setupIntent.id)
   }
 
   return (
@@ -1163,6 +1163,25 @@ function PaymentModal({ tier, passage, roles, alreadyPaidQuick, onClose, onSucce
     checkSession()
   }, [])
 
+  // Create a SetupIntent when the card form is shown without a saved card
+  useEffect(() => {
+    async function createSetupIntent() {
+      if (step !== 'card' || hasCard || setupClientSecret) return
+      try {
+        const res = await fetch('/api/setup-intent', { method: 'POST' })
+        const json = await res.json()
+        if (!res.ok || !json.clientSecret) {
+          setError(json.message || json.error || 'Could not start card setup')
+          return
+        }
+        setSetupClientSecret(json.clientSecret)
+      } catch {
+        setError('Could not start card setup — check your connection')
+      }
+    }
+    createSetupIntent()
+  }, [step, hasCard, setupClientSecret])
+
   // ── Auth handlers ────────────────────────────────────────────────────────
 
   async function handleAuth() {
@@ -1208,37 +1227,37 @@ function PaymentModal({ tier, passage, roles, alreadyPaidQuick, onClose, onSucce
 
   // ── Card saved handler ───────────────────────────────────────────────────
 
-  async function handleCardSaved(paymentMethodId: string) {
+  async function recordUnlock() {
+    // The server identifies the user from the session cookie
+    const res = await fetch('/api/checkout', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ tier, passage, roles }),
+    })
+    const json = await res.json().catch(() => ({}))
+    if (!res.ok) {
+      throw new Error(json.message || json.error || 'Failed to unlock')
+    }
+  }
+
+  async function handleCardSaved(setupIntentId: string) {
     if (!userId || !supabase) return
     setStep('processing')
     setError('')
 
     try {
-      // Get or create Stripe customer, save the payment method
+      // Save the verified payment method to the profile
       const res = await fetch('/api/setup-intent/confirm', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({
-          userId,
-          email:           userEmail,
-          paymentMethodId,
-        }),
+        body:    JSON.stringify({ setupIntentId }),
       })
 
-      const json = await res.json()
-      if (!res.ok) throw new Error(json.error || 'Failed to save card')
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(json.message || json.error || 'Failed to save card')
 
-      // Record the study unlock for billing
-      await fetch('/api/checkout', {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({
-          userId,
-          tier,
-          passage,
-          roles,
-        }),
-      })
+      // Record the study unlock for billing — must succeed before unlocking
+      await recordUnlock()
 
       onSuccess()
     } catch (err: any) {
@@ -1252,13 +1271,10 @@ function PaymentModal({ tier, passage, roles, alreadyPaidQuick, onClose, onSucce
   async function handleUseExistingCard() {
     if (!userId) return
     setStep('processing')
+    setError('')
 
     try {
-      await fetch('/api/checkout', {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ userId, tier, passage, roles }),
-      })
+      await recordUnlock()
       onSuccess()
     } catch (err: any) {
       setError(err.message || 'Failed to unlock')
@@ -1416,13 +1432,21 @@ function PaymentModal({ tier, passage, roles, alreadyPaidQuick, onClose, onSucce
               </button>
             ) : (
               stripePromise ? (
-                <Elements stripe={stripePromise}>
-                  <CardForm
-                    color={color}
-                    onSuccess={handleCardSaved}
-                    onError={msg => setError(msg)}
-                  />
-                </Elements>
+                setupClientSecret ? (
+                  <Elements stripe={stripePromise}>
+                    <CardForm
+                      color={color}
+                      clientSecret={setupClientSecret}
+                      onSuccess={handleCardSaved}
+                      onError={msg => setError(msg)}
+                    />
+                  </Elements>
+                ) : !error ? (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 0' }}>
+                    <div style={{ width: 16, height: 16, border: `2px solid ${color}`, borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+                    <span style={{ fontSize: 13, color: SLATE }}>Preparing secure card form…</span>
+                  </div>
+                ) : null
               ) : (
                 <div style={{ fontSize: 13, color: '#F87171' }}>Stripe not configured. Add NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY to environment variables.</div>
               )
@@ -1736,6 +1760,19 @@ export default function StudyPage() {
       const json = await res.json().catch(() => ({}))
 
       if (!res.ok) {
+        // Server says this user isn't entitled to this tab — re-lock the UI
+        // and reopen the payment modal (checkout is idempotent, so a user
+        // who already paid will be unlocked again without a second charge)
+        if (res.status === 401 || res.status === 402) {
+          generationQueue.current = generationQueue.current.filter(t => t === 'overview')
+          setTabStates(prev => ({
+            ...prev,
+            [tabId]: { status: 'idle', data: null, cached: false }
+          }))
+          setStudyState('free')
+          setModal(deepTabs.includes(tabId) ? 'deep' : 'quick')
+          return
+        }
         setTabStates(prev => ({
           ...prev,
           [tabId]: { status: 'error', data: null, cached: false, error: errorMessageForStatus(res.status, json?.message) }
@@ -1820,6 +1857,7 @@ export default function StudyPage() {
               : `${doneCount} tab${doneCount !== 1 ? 's' : ''} ready`
             }
           </span>
+          <a href="/account" style={{ fontSize: 12, color: GOLD, textDecoration: 'none', border: '1px solid rgba(201,151,58,0.3)', borderRadius: 6, padding: '4px 12px' }}>Account</a>
         </div>
       </nav>
 

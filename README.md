@@ -135,13 +135,18 @@ Update study page to:
 - Show cached badge (⚡ Instant) on cache hits
 
 ### Step 5 — Stripe
-Create two metered products in Stripe Dashboard:
-- Quick Study: $1.00/unit, usage-based
-- Deep Dive: $2.00/unit, usage-based
+No products needed in the Stripe Dashboard — billing is direct PaymentIntents:
+unlocks are recorded as `usage_events`, summed monthly, and charged to the
+saved card by the `/api/billing/charge` cron (1st of each month).
 
-Wire Stripe subscription creation on signup.
-Wire webhook to handle payment failures.
-Build account page with invoice history.
+- Cards are saved via SetupIntent (`/api/setup-intent` → `confirmCardSetup`
+  → `/api/setup-intent/confirm`), so SCA/3DS cards work off-session.
+- Create a webhook endpoint (Dashboard → Developers → Webhooks) pointing at
+  `/api/webhooks/stripe` with `payment_intent.succeeded`,
+  `payment_intent.payment_failed`, `charge.dispute.created`; set the signing
+  secret as `STRIPE_WEBHOOK_SECRET`.
+- Set `CRON_SECRET` — the billing route refuses to run without it.
+- The account page (`/account`) shows invoice history and the spending limit.
 
 ### Step 6 — Affiliate links
 Sign up: Amazon Associates, Logos, Christianbook.

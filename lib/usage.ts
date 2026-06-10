@@ -1,17 +1,17 @@
 // PassageLab — usage.ts
-// Usage tracking, spending limits, Stripe metered billing
+// Usage tracking, spending limits, unlock entitlements
+//
+// Billing model: each study unlock ($1 quick / $2 deep) is recorded by
+// /api/checkout as a usage_event with a dollar amount. Per-tab generation
+// events carry amount 0 (analytics only). The monthly cron in
+// /api/billing/charge sums unbilled amounts and charges the saved card.
 
 import { createClient } from '@supabase/supabase-js'
-import Stripe from 'stripe'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY
 const supabase = (supabaseUrl && supabaseKey)
   ? createClient(supabaseUrl, supabaseKey)
-  : null
-
-const stripe = process.env.STRIPE_SECRET_KEY
-  ? new Stripe(process.env.STRIPE_SECRET_KEY)
   : null
 
 // ─── Pricing ───────────────────────────────────────────────────────────────
@@ -21,11 +21,38 @@ export const PRICES = {
   DEEP_DIVE:   2.00,
 } as const
 
-// Stripe metered price IDs — create these in your Stripe dashboard
-// Products → Add product → Recurring → Usage-based → Per unit
-export const STRIPE_PRICE_IDS = {
-  QUICK_STUDY: process.env.STRIPE_QUICK_STUDY_PRICE_ID!,
-  DEEP_DIVE:   process.env.STRIPE_DEEP_DIVE_PRICE_ID!,
+// ─── Unlock entitlements ───────────────────────────────────────────────────
+// An unlock is a usage_event with a positive amount, written by /api/checkout.
+// 'deep' covers everything; 'quick' covers only quick (Haiku) tabs.
+
+export interface UnlockStatus {
+  quick: boolean
+  deep: boolean
+}
+
+export async function getUnlockStatus(
+  userId: string,
+  passage: string
+): Promise<UnlockStatus> {
+  if (!supabase) return { quick: false, deep: false }
+  try {
+    // The client sends the identical passage string to /api/checkout and
+    // /api/tab, so an exact match is sufficient here
+    const { data } = await supabase
+      .from('usage_events')
+      .select('study_type')
+      .eq('user_id', userId)
+      .eq('passage', passage)
+      .gt('amount', 0)
+
+    const types = new Set((data || []).map(e => e.study_type))
+    return {
+      deep:  types.has('deep'),
+      quick: types.has('quick') || types.has('deep'),
+    }
+  } catch {
+    return { quick: false, deep: false }
+  }
 }
 
 // ─── Spending limit check ──────────────────────────────────────────────────
@@ -38,7 +65,7 @@ export async function checkSpendingLimit(
   try {
     const { data: profile, error } = await supabase
       .from('profiles')
-      .select('monthly_spending_limit, stripe_subscription_id')
+      .select('monthly_spending_limit')
       .eq('id', userId)
       .single()
 
@@ -61,8 +88,8 @@ export async function checkSpendingLimit(
       .eq('user_id', userId)
       .gte('created_at', monthStart)
 
-    const currentSpend = (usage || []).reduce((sum, u) => sum + u.amount, 0)
-    const limit = profile.monthly_spending_limit
+    const currentSpend = (usage || []).reduce((sum, u) => sum + Number(u.amount), 0)
+    const limit = Number(profile.monthly_spending_limit)
 
     if (currentSpend + studyPrice > limit) {
       return {
@@ -97,7 +124,6 @@ export async function recordUsageEvent(params: {
 }): Promise<void> {
   if (!supabase) return   // No Supabase — skip usage recording
   try {
-    // 1. Write to usage_events table
     const { error } = await supabase
       .from('usage_events')
       .insert({
@@ -115,52 +141,8 @@ export async function recordUsageEvent(params: {
       })
 
     if (error) throw error
-
-    // 2. Report to Stripe metered billing (async, non-blocking)
-    reportToStripe(params.userId, params.studyType).catch(err => {
-      console.error('Stripe usage report failed:', err)
-    })
-
   } catch (err) {
     console.error('Usage recording failed:', err)
-  }
-}
-
-// ─── Stripe metered billing ────────────────────────────────────────────────
-// Stripe v13+ uses billing meter events instead of usage records
-// Set up meters in Stripe Dashboard → Billing → Meters
-// Meter event names must match what you create in the dashboard
-
-const METER_EVENT_NAMES = {
-  quick: 'passagelab_quick_study',
-  deep:  'passagelab_deep_dive',
-}
-
-async function reportToStripe(
-  userId: string,
-  studyType: 'quick' | 'deep'
-): Promise<void> {
-  if (!stripe || !supabase) return
-  try {
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('stripe_customer_id')
-      .eq('id', userId)
-      .single()
-
-    if (!profile?.stripe_customer_id) return
-
-    // Stripe v13+ metered billing via meter events
-    await (stripe.billing as any).meterEvents.create({
-      event_name:     METER_EVENT_NAMES[studyType],
-      payload: {
-        stripe_customer_id: profile.stripe_customer_id,
-        value:              '1',
-      },
-    })
-  } catch (err) {
-    // Non-fatal — log and continue
-    console.error('Stripe meter event failed:', err)
   }
 }
 
@@ -188,7 +170,8 @@ export async function getMonthSummary(userId: string): Promise<{
       .from('usage_events')
       .select('amount, study_type, passage, created_at')
       .eq('user_id', userId)
-      .gte('created_at', monthStart),
+      .gte('created_at', monthStart)
+      .gt('amount', 0),
     supabase
       .from('profiles')
       .select('monthly_spending_limit')
@@ -199,7 +182,7 @@ export async function getMonthSummary(userId: string): Promise<{
   const events = usageResult.data || []
   const limit = profileResult.data?.monthly_spending_limit || null
 
-  const totalSpend = events.reduce((sum, e) => sum + e.amount, 0)
+  const totalSpend = events.reduce((sum, e) => sum + Number(e.amount), 0)
   const quickStudies = events.filter(e => e.study_type === 'quick').length
   const deepDives = events.filter(e => e.study_type === 'deep').length
 

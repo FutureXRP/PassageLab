@@ -67,6 +67,9 @@ create index if not exists usage_events_user_created_idx
   on public.usage_events (user_id, created_at);
 create index if not exists usage_events_unbilled_idx
   on public.usage_events (user_id) where billed = false;
+-- Entitlement lookups in /api/tab and /api/checkout
+create index if not exists usage_events_user_passage_idx
+  on public.usage_events (user_id, passage) where amount > 0;
 
 -- ─── Billing records ─────────────────────────────────────────────────────────
 -- One row per user per billing period, written by /api/billing/charge.

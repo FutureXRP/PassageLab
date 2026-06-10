@@ -20,19 +20,17 @@ import {
   incrementCacheHit,
 } from '@/lib/cache'
 import {
-  checkSpendingLimit,
+  getUnlockStatus,
   recordUsageEvent,
 } from '@/lib/usage'
+import { getAuthUser } from '@/lib/auth'
+import { rateLimit, clientIp } from '@/lib/rate-limit'
 
 export const maxDuration = 60
 
-// Prompt caching enabled via beta header
-// Cached tokens cost 90% less than regular input tokens
+// Prompt caching is GA — cached tokens cost 90% less than regular input tokens
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY!,
-  defaultHeaders: {
-    'anthropic-beta': 'prompt-caching-2024-07-31',
-  },
 })
 
 const SONNET = 'claude-sonnet-4-6'
@@ -52,12 +50,13 @@ function estimateCost(
   cacheWriteTokens: number = 0
 ): number {
   const c = COSTS[model]
-  const regularInput = inputTokens - cacheReadTokens - cacheWriteTokens
+  // usage.input_tokens already EXCLUDES cache reads/writes — they are
+  // reported in separate fields, so no subtraction here
   return (
-    (Math.max(0, regularInput) * c.input       / 1000) +
-    (outputTokens              * c.output      / 1000) +
-    (cacheReadTokens           * c.cache_read  / 1000) +
-    (cacheWriteTokens          * c.cache_write / 1000)
+    (inputTokens      * c.input       / 1000) +
+    (outputTokens     * c.output      / 1000) +
+    (cacheReadTokens  * c.cache_read  / 1000) +
+    (cacheWriteTokens * c.cache_write / 1000)
   )
 }
 
@@ -65,8 +64,16 @@ function estimateCost(
 
 export async function POST(req: NextRequest) {
   try {
+    // ── Rate limit (per IP) ───────────────────────────────────────────────
+    if (!rateLimit(`tab:${clientIp(req.headers)}`, 30, 5 * 60_000)) {
+      return NextResponse.json({
+        error:   'rate_limited',
+        message: 'Too many requests. Please wait a few minutes and try again.',
+      }, { status: 429 })
+    }
+
     const body = await req.json()
-    const { passage, roles, tabId, userId } = body
+    const { passage, roles, tabId } = body
 
     // ── Validate ──────────────────────────────────────────────────────────
     if (!passage || typeof passage !== 'string') {
@@ -82,15 +89,29 @@ export async function POST(req: NextRequest) {
     const studyType  = isDeepTab(tabId) ? 'deep' : 'quick'
     const studyPrice = getStudyPrice([tabId])
 
-    // ── Spending limit check ──────────────────────────────────────────────
-    if (userId) {
-      const limitCheck = await checkSpendingLimit(userId, studyPrice)
-      if (!limitCheck.allowed) {
+    // ── Paywall enforcement (server-side) ─────────────────────────────────
+    // Overview is free and anonymous. Every other tab requires a signed-in
+    // user with a recorded unlock (written by /api/checkout) for this
+    // passage at the right tier. The user comes from the session cookie —
+    // never from the request body.
+    const user = await getAuthUser()
+    const userId = user?.id || null
+
+    if (tabId !== 'overview') {
+      if (!userId) {
         return NextResponse.json({
-          error:        'spending_limit_reached',
-          message:      limitCheck.reason,
-          currentSpend: limitCheck.currentSpend,
-          limit:        limitCheck.limit,
+          error:   'auth_required',
+          message: 'Please sign in to generate this tab.',
+        }, { status: 401 })
+      }
+      const unlocks = await getUnlockStatus(userId, passage)
+      const entitled = isDeepTab(tabId) ? unlocks.deep : unlocks.quick
+      if (!entitled) {
+        return NextResponse.json({
+          error:   'payment_required',
+          message: isDeepTab(tabId)
+            ? 'Unlock the Deep Dive to generate this tab.'
+            : 'Unlock the Quick Study to generate this tab.',
         }, { status: 402 })
       }
     }
@@ -100,9 +121,11 @@ export async function POST(req: NextRequest) {
     if (cached) {
       incrementCacheHit(passage, roles, tabId).catch(() => {})
       if (userId) {
+        // amount 0 — the billable charge is the unlock event from
+        // /api/checkout; per-tab events are analytics only
         recordUsageEvent({
           userId, passage, roles, tabIds: [tabId],
-          studyType, amount: studyPrice,
+          studyType, amount: 0,
           cached: true, inputTokens: 0, outputTokens: 0, apiCostEstimate: 0,
         }).catch(() => {})
       }
@@ -171,7 +194,6 @@ export async function POST(req: NextRequest) {
         {
           type: 'text',
           text: SYSTEM_PROMPT,
-          // @ts-ignore — prompt caching beta field
           cache_control: { type: 'ephemeral' },
         }
       ],
@@ -183,7 +205,6 @@ export async function POST(req: NextRequest) {
               // Bible text block — cached across all tabs for this passage
               type: 'text',
               text: bibleBlock,
-              // @ts-ignore — prompt caching beta field
               cache_control: { type: 'ephemeral' },
             },
             {
@@ -266,9 +287,10 @@ export async function POST(req: NextRequest) {
     const apiCost         = estimateCost(modelKey, inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens)
 
     if (userId) {
+      // amount 0 — billing happens at unlock time via /api/checkout
       recordUsageEvent({
         userId, passage, roles, tabIds: [tabId],
-        studyType, amount: studyPrice,
+        studyType, amount: 0,
         cached: false, inputTokens, outputTokens, apiCostEstimate: apiCost,
       }).catch(() => {})
     }
