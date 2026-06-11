@@ -97,7 +97,7 @@ export default function AccountPage() {
 
     const [profileRes, usageRes, billingRes, studiesRes] = await Promise.all([
       supabase.from('profiles')
-        .select('email, full_name, card_last4, card_brand, monthly_spending_limit')
+        .select('*')   // tolerate databases missing newer columns
         .eq('id', uid).single(),
       supabase.from('usage_events')
         .select('amount, study_type')
