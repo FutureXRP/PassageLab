@@ -27,11 +27,16 @@ import { getAuthUser } from '@/lib/auth'
 import { rateLimit, clientIp } from '@/lib/rate-limit'
 import { parseModelJson } from '@/lib/json-repair'
 
-export const maxDuration = 60
+// Long Sonnet generations (Apologetics, Theology, Commentary) can exceed
+// 60s under load — give the function room, and cap the upstream call so
+// SDK retries can't blow through the budget
+export const maxDuration = 120
 
 // Prompt caching is GA — cached tokens cost 90% less than regular input tokens
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY!,
+  timeout: 100_000,
+  maxRetries: 1,
 })
 
 const SONNET = 'claude-sonnet-4-6'

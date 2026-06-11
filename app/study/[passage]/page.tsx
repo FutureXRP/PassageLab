@@ -1568,7 +1568,7 @@ function IdlePlaceholder({ tabId, onGenerate, isDeep, queuePosition }: {
         </div>
       ) : (
         <div style={{ fontSize: 14, color: SLATE, marginBottom: 24, maxWidth: 300 }}>
-          {isDeep ? 'Deep Dive content — full scholarly analysis generated on demand' : 'Click to generate this section of your study'}
+          Included in your unlocked study — click to generate. No extra charge.
         </div>
       )}
       {!isQueued && (
@@ -1586,7 +1586,7 @@ function IdlePlaceholder({ tabId, onGenerate, isDeep, queuePosition }: {
             fontFamily:   SANS,
           }}
         >
-          Generate — {isDeep ? '$2 Scholarly' : '$1 Practical'}
+          Generate {TAB_LABELS[tabId] || 'Tab'}
         </button>
       )}
     </div>
@@ -1623,7 +1623,15 @@ export default function StudyPage() {
     try {
       const key = `pl_study_${passage}_${rolesParam}`
       const saved = localStorage.getItem(key)
-      return saved ? JSON.parse(saved) : {}
+      const parsed: Record<string, TabState> = saved ? JSON.parse(saved) : {}
+      // Stale in-flight/error states from a previous visit become idle so
+      // the tab shows a Generate button instead of a stuck spinner/error
+      for (const k of Object.keys(parsed)) {
+        if (parsed[k]?.status !== 'done') {
+          parsed[k] = { status: 'idle', data: null, cached: false }
+        }
+      }
+      return parsed
     } catch { return {} }
   })
 
@@ -1663,26 +1671,17 @@ export default function StudyPage() {
     } catch {}
   }, [tabStates, studyState])
 
-  // On load — always generate Overview free, restore prior state if available
+  // On load — generate the free Overview on a first visit only. Returning
+  // visits NEVER auto-call the API: restored tabs render from saved data,
+  // and anything incomplete waits for an explicit click (or the post-
+  // purchase queue in handlePaymentSuccess).
   useEffect(() => {
     if (hasInit.current) return
     hasInit.current = true
 
-    // Always generate Overview (free)
-    if (!tabStates['overview'] || tabStates['overview'].status !== 'done') {
+    const anyDone = Object.values(tabStates).some(s => s.status === 'done')
+    if (!anyDone) {
       queueTab('overview')
-    }
-
-    // If restoring from localStorage with deeper state, re-queue missing tabs
-    if (studyState === 'quick' || studyState === 'deep') {
-      quickTabs.forEach(tabId => {
-        if (!tabStates[tabId] || tabStates[tabId].status !== 'done') queueTab(tabId)
-      })
-    }
-    if (studyState === 'deep') {
-      deepTabs.forEach(tabId => {
-        if (!tabStates[tabId] || tabStates[tabId].status !== 'done') queueTab(tabId)
-      })
     }
 
     const firstDone = Object.keys(tabStates).find(t => tabStates[t]?.status === 'done')
@@ -1839,10 +1838,10 @@ export default function StudyPage() {
       [tabId]: { status: 'generating', data: null, cached: false }
     }))
 
-    // Abort if the request outlives the API route's 60s budget —
+    // Abort if the request outlives the API route's 120s budget —
     // surfaces as a 504-style timeout message instead of hanging forever
     const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), 90_000)
+    const timeout = setTimeout(() => controller.abort(), 150_000)
 
     try {
       const res = await fetch('/api/tab', {
