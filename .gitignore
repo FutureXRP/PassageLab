@@ -27,5 +27,3 @@ yarn-debug.log*
 # TypeScript
 *.tsbuildinfo
 next-env.d.ts
-.next/
-package-lock.json

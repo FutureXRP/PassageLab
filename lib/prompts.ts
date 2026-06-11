@@ -121,7 +121,8 @@ export const TAB_TOKENS: Record<string, number> = {
   // Deep Dive tabs
   commentary:      3500,
   fathers:         3000,
-  archaeology:     3500,
+  // Archaeology runs long (4 detailed discoveries) — was hitting max_tokens
+  archaeology:     4500,
   apologetics_deep:4000,
   books:           2000,
   citations:       1500,
@@ -130,9 +131,10 @@ export const TAB_TOKENS: Record<string, number> = {
 // ─── Bible text injection ──────────────────────────────────────────────────
 
 function passageBlock(passage: string, bibleText: Record<string, string>): string {
-  const text = bibleText?.esv || bibleText?.kjv || Object.values(bibleText || {})[0] || ''
+  // KJV is the primary fetched translation (see lib/bible-api.ts) — label it accurately
+  const text = bibleText?.kjv || bibleText?.web || Object.values(bibleText || {})[0] || ''
   if (text) {
-    return `Passage: "${passage}"\nText (ESV): ${text}\n\n`
+    return `Passage: "${passage}"\nText (KJV): ${text}\n\n`
   }
   return `Passage: "${passage}"\n\n`
 }
