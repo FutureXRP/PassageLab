@@ -834,19 +834,15 @@ function BooksTab({ data, passage }: { data: any; passage?: string }) {
     Scholar:      PURPLE,
   }
 
-  const amazonTag  = process.env.NEXT_PUBLIC_AMAZON_AFFILIATE_TAG || 'passagelab-20'
-  const logosRef   = process.env.NEXT_PUBLIC_LOGOS_AFFILIATE_REF  || 'passagelab'
-  const cbdAff     = process.env.NEXT_PUBLIC_CBD_AFFILIATE_ID     || 'passagelab'
+  const amazonTag = process.env.NEXT_PUBLIC_AMAZON_AFFILIATE_TAG || 'passagelab-20'
 
-  function amazonLink(title: string, author: string, isbn?: string) {
-    if (isbn) return `https://www.amazon.com/dp/${isbn.replace(/-/g,'')}?tag=${amazonTag}`
+  // Search links only — never /dp/<isbn>: the model can hallucinate ISBNs,
+  // and Amazon /dp/ URLs don't accept ISBN-13s, so direct links 404.
+  // A title+author search reliably lands on the book and keeps the
+  // Associates tag. Logos/CBD buttons were removed: their affiliate
+  // programs issue their own tracked link formats on enrollment.
+  function amazonLink(title: string, author: string) {
     return `https://www.amazon.com/s?k=${encodeURIComponent(title + ' ' + author)}&tag=${amazonTag}`
-  }
-  function logosLink(title: string, author: string) {
-    return `https://www.logos.com/search#q=${encodeURIComponent(title + ' ' + author)}&ref=${logosRef}`
-  }
-  function cbdLink(title: string, author: string) {
-    return `https://www.christianbook.com/page/search?q=${encodeURIComponent(title + ' ' + author)}&af=${cbdAff}`
   }
 
   return (
@@ -865,9 +861,7 @@ function BooksTab({ data, passage }: { data: any; passage?: string }) {
             </div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' as const }}>
               {[
-                { label: 'Amazon ↗', href: amazonLink(b.title, b.author, b.isbn) },
-                { label: 'Logos ↗',  href: logosLink(b.title, b.author) },
-                { label: 'CBD ↗',    href: cbdLink(b.title, b.author) },
+                { label: 'Find on Amazon ↗', href: amazonLink(b.title, b.author) },
               ].map(({ label, href }) => (
                 <a
                   key={label}
