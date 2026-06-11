@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
+import Link from 'next/link'
 import { useParams, useSearchParams } from 'next/navigation'
 import { getTabsForRoles, getTabModel, Role } from '@/lib/prompts'
 import { createClient as createBrowserSupabase } from '@/lib/supabase/client'
@@ -1950,9 +1951,9 @@ export default function StudyPage() {
 
       {/* Nav */}
       <nav className="screen-view" style={S.nav}>
-        <div style={S.logo}>
+        <Link href="/" style={{ ...S.logo, textDecoration: 'none' }} title="Back to home">
           Passage<span style={{ color: GOLD }}>Lab</span>
-        </div>
+        </Link>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <span style={{ fontFamily: SERIF, fontSize: 14, fontStyle: 'italic' as const, color: PARCHMENT }}>{passage}</span>
           {roles.map(r => (
@@ -1966,6 +1967,12 @@ export default function StudyPage() {
               : `${doneCount} tab${doneCount !== 1 ? 's' : ''} ready`
             }
           </span>
+          <Link
+            href="/"
+            style={{ fontSize: 12, color: PARCHMENT, textDecoration: 'none', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 6, padding: '4px 12px', whiteSpace: 'nowrap' as const }}
+          >
+            + New Study
+          </Link>
           {doneCount > 0 && (
             <>
               <button
