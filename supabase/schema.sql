@@ -1,6 +1,7 @@
 -- PassageLab — Supabase schema
 -- Run this in the Supabase SQL editor (Dashboard → SQL Editor → New query).
--- Tables, functions, triggers, and RLS policies for every feature in the app.
+-- Safe to run repeatedly: creates missing tables AND adds missing columns
+-- to tables that already exist (see the migration section at the bottom).
 
 -- ─── Profiles ────────────────────────────────────────────────────────────────
 -- One row per auth user, created automatically by trigger on signup.
@@ -254,3 +255,55 @@ create policy "billing_records_select_own" on public.billing_records
 
 -- study_cache, bible_cache, waitlist, affiliate_clicks: no anon/user policies —
 -- service-role access only (RLS enabled with no policies denies all other access).
+
+-- ─── Migration: upgrade tables created by earlier setups ────────────────────
+-- CREATE TABLE IF NOT EXISTS skips tables that already exist, so columns
+-- added after the original launch must be added explicitly. Every statement
+-- here is a no-op when the column/index already exists.
+
+alter table public.profiles add column if not exists email                     text;
+alter table public.profiles add column if not exists full_name                 text;
+alter table public.profiles add column if not exists stripe_customer_id        text;
+alter table public.profiles add column if not exists stripe_payment_method_id  text;
+alter table public.profiles add column if not exists stripe_subscription_id    text;
+alter table public.profiles add column if not exists card_last4                text;
+alter table public.profiles add column if not exists card_brand                text;
+alter table public.profiles add column if not exists card_verified_at          timestamptz;
+alter table public.profiles add column if not exists monthly_spending_limit    numeric(10,2);
+alter table public.profiles add column if not exists current_month_total       numeric(10,2) not null default 0;
+alter table public.profiles add column if not exists last_billed_at            timestamptz;
+alter table public.profiles add column if not exists last_bill_amount          numeric(10,2);
+alter table public.profiles add column if not exists created_at                timestamptz not null default now();
+alter table public.profiles add column if not exists updated_at                timestamptz not null default now();
+
+alter table public.usage_events add column if not exists roles              text[] not null default '{}';
+alter table public.usage_events add column if not exists tab_ids            text[] not null default '{}';
+alter table public.usage_events add column if not exists amount             numeric(10,2) not null default 0;
+alter table public.usage_events add column if not exists cached             boolean not null default false;
+alter table public.usage_events add column if not exists input_tokens       integer not null default 0;
+alter table public.usage_events add column if not exists output_tokens      integer not null default 0;
+alter table public.usage_events add column if not exists api_cost_estimate  numeric(10,6) not null default 0;
+alter table public.usage_events add column if not exists billed             boolean not null default false;
+alter table public.usage_events add column if not exists billed_at          timestamptz;
+alter table public.usage_events add column if not exists billing_period     text;
+alter table public.usage_events add column if not exists created_at         timestamptz not null default now();
+
+alter table public.billing_records add column if not exists quick_study_count        integer not null default 0;
+alter table public.billing_records add column if not exists deep_study_count         integer not null default 0;
+alter table public.billing_records add column if not exists stripe_payment_intent_id text;
+alter table public.billing_records add column if not exists charged_at               timestamptz;
+alter table public.billing_records add column if not exists created_at               timestamptz not null default now();
+
+-- Upserts in the billing job rely on this unique pair
+create unique index if not exists billing_records_user_period_uidx
+  on public.billing_records (user_id, billing_period);
+
+alter table public.study_cache add column if not exists hit_count  integer not null default 1;
+alter table public.study_cache add column if not exists updated_at timestamptz not null default now();
+
+alter table public.waitlist add column if not exists source text not null default 'landing';
+
+-- Tell PostgREST (Supabase's API layer) to reload its schema cache so new
+-- columns are visible immediately — fixes "Could not find the ... column
+-- in the schema cache" without waiting for the automatic reload
+notify pgrst, 'reload schema';

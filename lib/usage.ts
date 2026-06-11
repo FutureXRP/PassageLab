@@ -63,14 +63,18 @@ export async function checkSpendingLimit(
 ): Promise<{ allowed: boolean; reason?: string; currentSpend: number; limit: number }> {
   if (!supabase) return { allowed: true, currentSpend: 0, limit: 0 }
   try {
+    // select('*') instead of naming columns: on a database that predates a
+    // column, a named select 400s and would block paying customers
     const { data: profile, error } = await supabase
       .from('profiles')
-      .select('monthly_spending_limit')
+      .select('*')
       .eq('id', userId)
       .single()
 
     if (error || !profile) {
-      return { allowed: false, reason: 'Profile not found', currentSpend: 0, limit: 0 }
+      // Infrastructure/schema problem — fail open rather than block checkout
+      console.error('Spending limit check could not load profile:', error?.message)
+      return { allowed: true, currentSpend: 0, limit: 0 }
     }
 
     // No limit set — allow
