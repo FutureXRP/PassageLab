@@ -825,7 +825,7 @@ function ArchaeologyTab({ data }: { data: any }) {
   )
 }
 
-function BooksTab({ data, passage }: { data: any; passage?: string }) {
+function BooksTab({ data }: { data: any }) {
   const books = data?.books || []
   const levelColor: Record<string, string> = {
     Beginner:     '#34D399',
@@ -834,17 +834,11 @@ function BooksTab({ data, passage }: { data: any; passage?: string }) {
     Scholar:      PURPLE,
   }
 
-  const amazonTag = process.env.NEXT_PUBLIC_AMAZON_AFFILIATE_TAG || 'passagelab-20'
-
-  // Search links only — never /dp/<isbn>: the model can hallucinate ISBNs,
-  // and Amazon /dp/ URLs don't accept ISBN-13s, so direct links 404.
-  // A title+author search reliably lands on the book and keeps the
-  // Associates tag. Logos/CBD buttons were removed: their affiliate
-  // programs issue their own tracked link formats on enrollment.
-  function amazonLink(title: string, author: string) {
-    return `https://www.amazon.com/s?k=${encodeURIComponent(title + ' ' + author)}&tag=${amazonTag}`
-  }
-
+  // Recommendations are listed for reference only — no purchase/affiliate
+  // links. The model can hallucinate ISBNs and editions, so we don't link
+  // out until a recommendation has been verified against a real catalog.
+  // (See the book-catalog accumulation in /api/tab — once that list is
+  // authenticated we can reintroduce accurate links + affiliate tags.)
   return (
     <>
       <DeepBanner tabId="books" />
@@ -855,33 +849,9 @@ function BooksTab({ data, passage }: { data: any; passage?: string }) {
             <div style={{ fontFamily: SERIF, fontSize: 15, fontWeight: 600, color: GOLD, marginBottom: 4 }}>{b.title}</div>
             <div style={{ fontSize: 12, color: SLATE, marginBottom: 10 }}>{b.author}</div>
             <p style={{ ...S.bodyTxt, marginBottom: 12 }}>{b.description}</p>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' as const, marginBottom: 12 }}>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' as const }}>
               <span style={{ fontSize: 10, color: levelColor[b.level] || SLATE, background: `${levelColor[b.level] || SLATE}18`, border: `1px solid ${levelColor[b.level] || SLATE}40`, borderRadius: 4, padding: '2px 8px' }}>{b.level}</span>
               <span style={{ fontSize: 10, color: SLATE, background: 'rgba(255,255,255,0.04)', border: '0.5px solid rgba(255,255,255,0.1)', borderRadius: 4, padding: '2px 8px' }}>{b.type}</span>
-            </div>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' as const }}>
-              {[
-                { label: 'Find on Amazon ↗', href: amazonLink(b.title, b.author) },
-              ].map(({ label, href }) => (
-                <a
-                  key={label}
-                  href={href}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{
-                    fontSize:     12,
-                    color:        GOLD,
-                    background:   'rgba(201,151,58,0.08)',
-                    border:       '1px solid rgba(201,151,58,0.25)',
-                    borderRadius: 4,
-                    padding:      '4px 10px',
-                    textDecoration: 'none',
-                    fontWeight:   500,
-                  }}
-                >
-                  {label}
-                </a>
-              ))}
             </div>
           </div>
         </div>
@@ -1038,7 +1008,7 @@ function TabContent({ tabId, data, bibleText, bibleVersion }: {
     case 'commentary':      return <CommentaryTab data={data} />
     case 'fathers':         return <FathersTab data={data} />
     case 'archaeology':     return <ArchaeologyTab data={data} />
-    case 'books':           return <BooksTab data={data} passage={tabId} />
+    case 'books':           return <BooksTab data={data} />
     case 'citations':       return <CitationsTab data={data} />
     default:                return <pre style={{ color: PARCHMENT, fontSize: 12 }}>{JSON.stringify(data, null, 2)}</pre>
   }

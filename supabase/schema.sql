@@ -158,6 +158,40 @@ create table if not exists public.affiliate_clicks (
   created_at  timestamptz not null default now()
 );
 
+-- ─── Book catalog (accumulated from the Books tab) ───────────────────────────
+-- Every freshly generated Books tab dumps its recommendations here, dedup'd by
+-- a normalized title|author key. The Books tab itself no longer links out:
+-- the model can hallucinate ISBNs/editions, so this is a staging catalog we
+-- accumulate now, verify later (set `verified`, fill `canonical_isbn` /
+-- `purchase_url` against a real catalog), and only then reintroduce accurate
+-- links + affiliate revenue against the authenticated rows.
+
+create table if not exists public.book_catalog (
+  id               uuid primary key default gen_random_uuid(),
+  book_key         text not null unique,           -- normalized "title|author" for dedup
+  title            text not null,
+  author           text,
+  type             text,                           -- Commentary | Theology | Background | Language | Devotional
+  isbn             text,                           -- best-effort from the model, UNVERIFIED
+  level            text,                           -- Beginner | Intermediate | Advanced | Scholar
+  passages         text[] not null default '{}',   -- distinct passages it's been recommended for (capped at 200)
+  recommend_count  integer not null default 1,     -- times recommended across all studies
+  verified         boolean not null default false, -- true once authenticated against a real catalog
+  verified_at      timestamptz,
+  canonical_isbn   text,                           -- authenticated ISBN-13 (filled by the verification step)
+  purchase_url     text,                           -- authenticated link (affiliate tag added later)
+  first_seen_at    timestamptz not null default now(),
+  last_seen_at     timestamptz not null default now(),
+  created_at       timestamptz not null default now(),
+  updated_at       timestamptz not null default now()
+);
+
+create index if not exists book_catalog_count_idx
+  on public.book_catalog (recommend_count desc);
+-- Worklist for the future verification pass: rows still awaiting authentication
+create index if not exists book_catalog_unverified_idx
+  on public.book_catalog (recommend_count desc) where verified = false;
+
 -- ─── RPC: increment monthly spend total ──────────────────────────────────────
 -- Called by /api/checkout after recording a usage event.
 
@@ -193,6 +227,71 @@ begin
 end;
 $$;
 
+-- ─── RPC: record book recommendations ────────────────────────────────────────
+-- Called by /api/tab on every freshly generated Books tab. Takes the passage
+-- and a JSON array of books, upserting each into book_catalog: new titles are
+-- inserted, repeats bump recommend_count and append the passage (deduped,
+-- capped at 200). One round-trip, race-safe via ON CONFLICT.
+
+create or replace function public.record_book_recommendations(
+  p_passage text,
+  p_books   jsonb
+)
+returns void
+language plpgsql
+security definer set search_path = public
+as $$
+declare
+  b        jsonb;
+  v_title  text;
+  v_author text;
+  v_type   text;
+  v_isbn   text;
+  v_level  text;
+  v_key    text;
+begin
+  if p_books is null or jsonb_typeof(p_books) <> 'array' then
+    return;
+  end if;
+
+  for b in select * from jsonb_array_elements(p_books)
+  loop
+    v_title := trim(coalesce(b ->> 'title', ''));
+    continue when v_title = '';
+
+    v_author := nullif(trim(coalesce(b ->> 'author', '')), '');
+    v_type   := nullif(trim(coalesce(b ->> 'type',  '')), '');
+    v_level  := nullif(trim(coalesce(b ->> 'level', '')), '');
+    -- keep digits/X only, so "ISBN: 978-0-..." and "" both normalize cleanly
+    v_isbn   := nullif(regexp_replace(coalesce(b ->> 'isbn', ''), '[^0-9Xx]', '', 'g'), '');
+    -- dedup key: lowercased "title|author", collapsed whitespace
+    v_key    := lower(regexp_replace(v_title || '|' || coalesce(v_author, ''), '\s+', ' ', 'g'));
+
+    insert into public.book_catalog
+      (book_key, title, author, type, isbn, level, passages, recommend_count)
+    values
+      (v_key, v_title, v_author, v_type, v_isbn, v_level,
+       case when coalesce(p_passage, '') = '' then '{}'::text[] else array[p_passage] end,
+       1)
+    on conflict (book_key) do update set
+      recommend_count = public.book_catalog.recommend_count + 1,
+      last_seen_at    = now(),
+      updated_at      = now(),
+      -- enrich missing fields without overwriting what we already have
+      isbn   = coalesce(public.book_catalog.isbn,   excluded.isbn),
+      type   = coalesce(public.book_catalog.type,   excluded.type),
+      level  = coalesce(public.book_catalog.level,  excluded.level),
+      author = coalesce(public.book_catalog.author, excluded.author),
+      passages = case
+        when coalesce(p_passage, '') = ''                                    then public.book_catalog.passages
+        when public.book_catalog.passages @> array[p_passage]                then public.book_catalog.passages
+        when coalesce(array_length(public.book_catalog.passages, 1), 0) >= 200 then public.book_catalog.passages
+        else public.book_catalog.passages || p_passage
+      end;
+  end loop;
+end;
+$$;
+
 -- ─── Monitoring view: most-studied passages ──────────────────────────────────
 
 create or replace view public.top_passages as
@@ -216,6 +315,7 @@ alter table public.study_cache      enable row level security;
 alter table public.bible_cache      enable row level security;
 alter table public.waitlist         enable row level security;
 alter table public.affiliate_clicks enable row level security;
+alter table public.book_catalog     enable row level security;
 alter table public.saved_studies    enable row level security;
 
 -- Users own their saved studies outright (read, save, update, delete)
@@ -253,8 +353,9 @@ drop policy if exists "billing_records_select_own" on public.billing_records;
 create policy "billing_records_select_own" on public.billing_records
   for select using (auth.uid() = user_id);
 
--- study_cache, bible_cache, waitlist, affiliate_clicks: no anon/user policies —
--- service-role access only (RLS enabled with no policies denies all other access).
+-- study_cache, bible_cache, waitlist, affiliate_clicks, book_catalog: no
+-- anon/user policies — service-role access only (RLS enabled with no policies
+-- denies all other access).
 
 -- ─── Migration: upgrade tables created by earlier setups ────────────────────
 -- CREATE TABLE IF NOT EXISTS skips tables that already exist, so columns

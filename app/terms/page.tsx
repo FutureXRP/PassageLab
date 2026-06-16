@@ -39,7 +39,7 @@ export default function TermsPage() {
       <p>You may use generated study content freely in your sermons, lessons, papers, and ministry work. The PassageLab name, design, and software remain our property. Bible text is drawn from public domain translations (KJV, WEB, ASV, YLT).</p>
 
       <H>6. Affiliate Links</H>
-      <p>Book recommendations may include affiliate links (Amazon, Logos, Christianbook). We may earn a commission on purchases at no extra cost to you.</p>
+      <p>Book recommendations are currently provided for reference only and do not contain affiliate or purchase links. If we introduce affiliate links (such as Amazon, Logos, or Christianbook) in the future, we may earn a commission on purchases at no extra cost to you, and this section will be updated to reflect that.</p>
 
       <H>7. Disclaimers &amp; Liability</H>
       <p>The service is provided &quot;as is&quot; without warranties of any kind. To the maximum extent permitted by law, our total liability for any claim arising from the service is limited to the amount you paid us in the three months before the claim.</p>

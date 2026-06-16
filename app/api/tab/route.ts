@@ -26,6 +26,7 @@ import {
 import { getAuthUser } from '@/lib/auth'
 import { rateLimit, clientIp } from '@/lib/rate-limit'
 import { parseModelJson } from '@/lib/json-repair'
+import { recordBookRecommendations } from '@/lib/book-catalog'
 
 // Long Sonnet generations (Apologetics, Theology, Commentary) can exceed
 // 60s under load — give the function room, and cap the upstream call so
@@ -270,6 +271,14 @@ export async function POST(req: NextRequest) {
 
     // ── Write to Supabase cache ───────────────────────────────────────────
     setCachedTab(passage, roles, tabId, parsed).catch(() => {})
+
+    // ── Accumulate the book catalog ───────────────────────────────────────
+    // Every freshly generated Books tab feeds the growing, dedup'd catalog
+    // we'll later verify and (eventually) link + monetize. Fire-and-forget —
+    // recorded only on fresh generation, since cache hits add no new books.
+    if (tabId === 'books') {
+      recordBookRecommendations(passage, (parsed as { books?: unknown }).books).catch(() => {})
+    }
 
     // ── Return ────────────────────────────────────────────────────────────
     return NextResponse.json({

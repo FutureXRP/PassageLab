@@ -95,7 +95,7 @@ lib/
   prompts.ts          — All tab prompts, role mapping, model routing, token budgets
   cache.ts            — Supabase cache read/write, key normalization
   usage.ts            — Usage tracking, spending limits, Stripe metered billing
-  affiliate-links.ts  — Amazon, Logos, CBD affiliate link builders
+  book-catalog.ts     — Accumulates Books-tab recommendations into a dedup'd catalog for later verification
   bible-api.ts        — Bible text fetching (existing)
 
 app/api/
@@ -148,11 +148,25 @@ saved card by the `/api/billing/charge` cron (1st of each month).
 - Set `CRON_SECRET` — the billing route refuses to run without it.
 - The account page (`/account`) shows invoice history and the spending limit.
 
-### Step 6 — Affiliate links
-Sign up: Amazon Associates, Logos, Christianbook.
-Add affiliate tags to `.env.local`.
-Wire `affiliate-links.ts` into Books tab rendering.
-Log clicks to `affiliate_clicks` table.
+### Step 6 — Book catalog → verification → affiliate links
+The Books tab deliberately ships **without** purchase/affiliate links: the
+model can hallucinate ISBNs and editions, so linking out before verification
+sends users to wrong or dead pages. Instead we build toward accurate links in
+three stages:
+
+1. **Accumulate (done).** Every freshly generated Books tab feeds
+   `lib/book-catalog.ts` → the `book_catalog` table (dedup'd by normalized
+   title|author, with `recommend_count` and the `passages` it was suggested
+   for). The catalog grows on its own as studies are generated.
+2. **Verify (next).** A separate pass works the `book_catalog_unverified_idx`
+   worklist (highest `recommend_count` first): confirm each book against a real
+   catalog, fill `canonical_isbn` / `purchase_url`, and set `verified = true`.
+   Run it as a script or scheduled job, or export the catalog to GitHub for a
+   verification workflow.
+3. **Link + monetize.** Once a row is `verified`, the Books tab can render an
+   accurate link for it. Sign up for Amazon Associates / Logos / Christianbook,
+   add the affiliate tag to `.env.local`
+   (`NEXT_PUBLIC_AMAZON_AFFILIATE_TAG`), and log clicks to `affiliate_clicks`.
 
 ### Step 7 — Spending limits
 Build spending limit UI in account page.
