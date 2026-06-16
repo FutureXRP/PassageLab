@@ -124,6 +124,7 @@ function HomeContent() {
             </button>
           </div>
           {error && <div style={{ fontSize: 13, color: '#F87171', marginTop: 8 }}>{error}</div>}
+          {!error && <div style={{ fontSize: 12, color: SLATE, marginTop: 8 }}>A chapter or a section works best — up to 40 verses.</div>}
         </div>
 
         {/* Role selector */}

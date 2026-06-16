@@ -13,24 +13,25 @@ const TRANSLATION_LABELS: Record<Translation, string> = {
   ylt: "Young's Literal Translation",
 }
 
-async function fetchTranslation(passage: string, translation: Translation): Promise<string> {
+async function fetchTranslation(passage: string, translation: Translation): Promise<{ text: string; count: number }> {
   try {
     const encoded = encodeURIComponent(passage)
     const res = await fetch(`${BASE}/${encoded}?translation=${translation}`, {
       next: { revalidate: 86400 }, // cache for 24 hours
     })
-    if (!res.ok) return ''
+    if (!res.ok) return { text: '', count: 0 }
     const data = await res.json()
-    if (data.error) return ''
+    if (data.error) return { text: '', count: 0 }
     // Format verses nicely
     if (data.verses && data.verses.length > 0) {
-      return data.verses
+      const text = data.verses
         .map((v: any) => `[${v.book_name} ${v.chapter}:${v.verse}] ${v.text.trim()}`)
         .join('\n')
+      return { text, count: data.verses.length }
     }
-    return data.text?.trim() || ''
+    return { text: data.text?.trim() || '', count: 0 }
   } catch {
-    return ''
+    return { text: '', count: 0 }
   }
 }
 
@@ -41,6 +42,9 @@ export interface BibleText {
   ylt: string
   reference: string
   copyright: string
+  // Exact number of verses in the passage (max across translations; 0 when the
+  // reference couldn't be fetched). Used to cap passage size in /api/tab.
+  verseCount: number
 }
 
 export async function fetchPassageText(passage: string): Promise<BibleText> {
@@ -49,11 +53,12 @@ export async function fetchPassageText(passage: string): Promise<BibleText> {
   )
 
   return {
-    kjv: kjv || `[${passage} — KJV not found]`,
-    web: web || `[${passage} — WEB not found]`,
-    asv: asv || `[${passage} — ASV not found]`,
-    ylt: ylt || `[${passage} — YLT not found]`,
+    kjv: kjv.text || `[${passage} — KJV not found]`,
+    web: web.text || `[${passage} — WEB not found]`,
+    asv: asv.text || `[${passage} — ASV not found]`,
+    ylt: ylt.text || `[${passage} — YLT not found]`,
     reference: passage,
     copyright: 'KJV, WEB, ASV, and YLT are public domain translations.',
+    verseCount: Math.max(kjv.count, web.count, asv.count, ylt.count, 0),
   }
 }

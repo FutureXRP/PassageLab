@@ -159,24 +159,44 @@ export async function POST(req: NextRequest) {
 
     // ── Fetch Bible text ──────────────────────────────────────────────────
     let bibleText: Record<string, string> = {}
+    let verseCount = 0
     const cachedBible = await getCachedBibleText(passage)
     if (cachedBible) {
       bibleText = cachedBible
+      verseCount = Number(cachedBible.verseCount) || 0
     } else {
       try {
         const fetched = await fetchPassageText(passage)
+        verseCount = fetched.verseCount
         bibleText = {
-          kjv:       fetched.kjv,
-          web:       fetched.web,
-          asv:       fetched.asv,
-          ylt:       fetched.ylt,
-          reference: fetched.reference,
-          copyright: fetched.copyright,
+          kjv:        fetched.kjv,
+          web:        fetched.web,
+          asv:        fetched.asv,
+          ylt:        fetched.ylt,
+          reference:  fetched.reference,
+          copyright:  fetched.copyright,
+          // stringified so the cache-hit path can re-check the cap cheaply.
+          // ScriptureTab reads named keys (kjv/web/...), so this never renders.
+          verseCount: String(fetched.verseCount),
         }
         setCachedBibleText(passage, bibleText).catch(() => {})
       } catch {
         bibleText = {}
+        verseCount = 0
       }
+    }
+
+    // ── Passage size guard ────────────────────────────────────────────────
+    // Reject overly long passages BEFORE any paid model call, so the per-verse
+    // tabs (Scripture especially) can never truncate or time out. The verse
+    // count is exact (from bible-api). 0 means the reference wasn't fetchable —
+    // we let those through (no verse list to enumerate = low truncation risk).
+    const MAX_PASSAGE_VERSES = Number(process.env.MAX_PASSAGE_VERSES) || 40
+    if (verseCount > MAX_PASSAGE_VERSES) {
+      return NextResponse.json({
+        error:   'passage_too_long',
+        message: `That selection is ${verseCount} verses. PassageLab studies up to ${MAX_PASSAGE_VERSES} verses at a time — try a single chapter or a shorter section.`,
+      }, { status: 400 })
     }
 
     // ── Build prompt ──────────────────────────────────────────────────────
