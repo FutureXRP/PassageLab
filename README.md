@@ -149,24 +149,31 @@ saved card by the `/api/billing/charge` cron (1st of each month).
 - The account page (`/account`) shows invoice history and the spending limit.
 
 ### Step 6 — Book catalog → verification → affiliate links
-The Books tab deliberately ships **without** purchase/affiliate links: the
-model can hallucinate ISBNs and editions, so linking out before verification
-sends users to wrong or dead pages. Instead we build toward accurate links in
-three stages:
+The Books tab never links to an unverified guess: the model can hallucinate
+ISBNs and editions, so a link only appears once the book is confirmed against
+a real catalog. Three stages, all wired:
 
-1. **Accumulate (done).** Every freshly generated Books tab feeds
-   `lib/book-catalog.ts` → the `book_catalog` table (dedup'd by normalized
-   title|author, with `recommend_count` and the `passages` it was suggested
-   for). The catalog grows on its own as studies are generated.
-2. **Verify (next).** A separate pass works the `book_catalog_unverified_idx`
-   worklist (highest `recommend_count` first): confirm each book against a real
-   catalog, fill `canonical_isbn` / `purchase_url`, and set `verified = true`.
-   Run it as a script or scheduled job, or export the catalog to GitHub for a
-   verification workflow.
-3. **Link + monetize.** Once a row is `verified`, the Books tab can render an
-   accurate link for it. Sign up for Amazon Associates / Logos / Christianbook,
-   add the affiliate tag to `.env.local`
-   (`NEXT_PUBLIC_AMAZON_AFFILIATE_TAG`), and log clicks to `affiliate_clicks`.
+1. **Accumulate.** Every freshly generated Books tab feeds `lib/book-catalog.ts`
+   → the `book_catalog` table (dedup'd by normalized title|author, with
+   `recommend_count` and the `passages` it was suggested for). The catalog grows
+   on its own as studies are generated.
+2. **Verify.** `app/api/verify-books/route.ts` works the most-recommended
+   unverified rows, resolves each to a canonical ISBN-13 via Google Books
+   (`lib/book-links.ts`, requires both title and author to match — a wrong link
+   is worse than none), then sets `verified = true` with `canonical_isbn` and a
+   `purchase_url`. Misses get a 30-day `last_checked_at` backoff. Runs daily via
+   Vercel Cron (`vercel.json`) or on demand:
+   ```
+   curl -H "Authorization: Bearer $CRON_SECRET" \
+        "https://<domain>/api/verify-books?limit=25"
+   ```
+   Optional `GOOGLE_BOOKS_API_KEY` raises rate limits.
+3. **Link + monetize.** `attachVerifiedLinks` (in `lib/book-catalog.ts`) adds a
+   `purchase_url` to verified books at serve time in `/api/tab` — built fresh
+   from the confirmed ISBN + `NEXT_PUBLIC_AMAZON_AFFILIATE_TAG`, so the cached
+   study stays link-free and links light up retroactively as books get verified.
+   Sign up for Amazon Associates and set the tag; clicks can be logged to
+   `affiliate_clicks`.
 
 ### Step 7 — Spending limits
 Build spending limit UI in account page.

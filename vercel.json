@@ -3,6 +3,10 @@
     {
       "path": "/api/billing/charge",
       "schedule": "0 8 1 * *"
+    },
+    {
+      "path": "/api/verify-books",
+      "schedule": "0 7 * * *"
     }
   ]
 }

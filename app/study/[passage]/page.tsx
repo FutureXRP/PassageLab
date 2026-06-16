@@ -834,11 +834,10 @@ function BooksTab({ data }: { data: any }) {
     Scholar:      PURPLE,
   }
 
-  // Recommendations are listed for reference only — no purchase/affiliate
-  // links. The model can hallucinate ISBNs and editions, so we don't link
-  // out until a recommendation has been verified against a real catalog.
-  // (See the book-catalog accumulation in /api/tab — once that list is
-  // authenticated we can reintroduce accurate links + affiliate tags.)
+  // Links appear only for books that have been verified against a real catalog
+  // (the /api/verify-books job fills purchase_url via lib/book-catalog). Until
+  // a recommendation is verified it's listed for reference only — the model can
+  // hallucinate ISBNs/editions, so we never link out to an unverified guess.
   return (
     <>
       <DeepBanner tabId="books" />
@@ -849,9 +848,19 @@ function BooksTab({ data }: { data: any }) {
             <div style={{ fontFamily: SERIF, fontSize: 15, fontWeight: 600, color: GOLD, marginBottom: 4 }}>{b.title}</div>
             <div style={{ fontSize: 12, color: SLATE, marginBottom: 10 }}>{b.author}</div>
             <p style={{ ...S.bodyTxt, marginBottom: 12 }}>{b.description}</p>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' as const }}>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' as const, alignItems: 'center' }}>
               <span style={{ fontSize: 10, color: levelColor[b.level] || SLATE, background: `${levelColor[b.level] || SLATE}18`, border: `1px solid ${levelColor[b.level] || SLATE}40`, borderRadius: 4, padding: '2px 8px' }}>{b.level}</span>
               <span style={{ fontSize: 10, color: SLATE, background: 'rgba(255,255,255,0.04)', border: '0.5px solid rgba(255,255,255,0.1)', borderRadius: 4, padding: '2px 8px' }}>{b.type}</span>
+              {b.purchase_url && (
+                <a
+                  href={b.purchase_url}
+                  target="_blank"
+                  rel="noopener noreferrer sponsored"
+                  style={{ fontSize: 12, color: GOLD, background: 'rgba(201,151,58,0.08)', border: '1px solid rgba(201,151,58,0.25)', borderRadius: 4, padding: '4px 10px', textDecoration: 'none', fontWeight: 500 }}
+                >
+                  Find on Amazon ↗
+                </a>
+              )}
             </div>
           </div>
         </div>

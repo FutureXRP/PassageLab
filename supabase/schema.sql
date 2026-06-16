@@ -179,7 +179,8 @@ create table if not exists public.book_catalog (
   verified         boolean not null default false, -- true once authenticated against a real catalog
   verified_at      timestamptz,
   canonical_isbn   text,                           -- authenticated ISBN-13 (filled by the verification step)
-  purchase_url     text,                           -- authenticated link (affiliate tag added later)
+  purchase_url     text,                           -- authenticated canonical link (affiliate tag added at serve time)
+  last_checked_at  timestamptz,                    -- when /api/verify-books last looked (30-day backoff)
   first_seen_at    timestamptz not null default now(),
   last_seen_at     timestamptz not null default now(),
   created_at       timestamptz not null default now(),
@@ -403,6 +404,9 @@ alter table public.study_cache add column if not exists hit_count  integer not n
 alter table public.study_cache add column if not exists updated_at timestamptz not null default now();
 
 alter table public.waitlist add column if not exists source text not null default 'landing';
+
+-- book_catalog gained a verification backoff timestamp after its first release
+alter table public.book_catalog add column if not exists last_checked_at timestamptz;
 
 -- ─── Least-privilege hardening ───────────────────────────────────────────────
 -- Supabase grants anon/authenticated broad table privileges by default and

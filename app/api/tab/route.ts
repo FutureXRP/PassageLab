@@ -26,7 +26,7 @@ import {
 import { getAuthUser } from '@/lib/auth'
 import { rateLimit, clientIp } from '@/lib/rate-limit'
 import { parseModelJson } from '@/lib/json-repair'
-import { recordBookRecommendations } from '@/lib/book-catalog'
+import { recordBookRecommendations, attachVerifiedLinks } from '@/lib/book-catalog'
 
 // Long Sonnet generations (Apologetics, Theology, Commentary) can exceed
 // 60s under load — give the function room, and cap the upstream call so
@@ -144,8 +144,15 @@ export async function POST(req: NextRequest) {
           try { cachedBibleOut = (await fetchPassageText(passage)) as unknown as Record<string, string> } catch {}
         }
       }
+      // Attach purchase links for any books that are verified in the catalog.
+      // Done at serve time (not stored in cache) so links appear retroactively
+      // as books get verified, without invalidating cached study content.
+      const cachedData = tabId === 'books'
+        ? { ...cached, books: await attachVerifiedLinks(((cached as { books?: unknown }).books as Record<string, unknown>[]) || []) }
+        : cached
+
       return NextResponse.json({
-        tabId, data: cached, cached: true, price: studyPrice,
+        tabId, data: cachedData, cached: true, price: studyPrice,
         ...(cachedBibleOut ? { bibleText: cachedBibleOut } : {}),
       })
     }
@@ -276,14 +283,18 @@ export async function POST(req: NextRequest) {
     // Every freshly generated Books tab feeds the growing, dedup'd catalog
     // we'll later verify and (eventually) link + monetize. Fire-and-forget —
     // recorded only on fresh generation, since cache hits add no new books.
+    let responseData: Record<string, unknown> = parsed
     if (tabId === 'books') {
       recordBookRecommendations(passage, (parsed as { books?: unknown }).books).catch(() => {})
+      // Surface links for already-verified books (built fresh from the catalog,
+      // not written back to cache).
+      responseData = { ...parsed, books: await attachVerifiedLinks(((parsed as { books?: unknown }).books as Record<string, unknown>[]) || []) }
     }
 
     // ── Return ────────────────────────────────────────────────────────────
     return NextResponse.json({
       tabId,
-      data:   parsed,
+      data:   responseData,
       cached: false,
       price:  studyPrice,
       ...(tabId === 'scripture' && bibleText.kjv ? { bibleText } : {}),
