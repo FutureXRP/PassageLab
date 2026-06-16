@@ -21,6 +21,12 @@ export const PRICES = {
   DEEP_DIVE:   2.00,
 } as const
 
+// Default monthly cap (USD) applied to any user who hasn't set their own limit.
+// Bounds API-cost exposure per account so one user can't run up an unbounded
+// bill before month-end collection. Users can raise/lower it on the account
+// page; set DEFAULT_MONTHLY_CAP=0 in the env to disable the default entirely.
+const DEFAULT_MONTHLY_CAP = Number(process.env.DEFAULT_MONTHLY_CAP) || 50
+
 // ─── Unlock entitlements ───────────────────────────────────────────────────
 // An unlock is a usage_event with a positive amount, written by /api/checkout.
 // 'deep' covers everything; 'quick' covers only quick (Haiku) tabs.
@@ -77,12 +83,19 @@ export async function checkSpendingLimit(
       return { allowed: true, currentSpend: 0, limit: 0 }
     }
 
-    // No limit set — allow
-    if (!profile.monthly_spending_limit) {
+    // Effective monthly cap: the user's own limit if they've set a positive
+    // one, otherwise the platform default. Bounds exposure for accounts that
+    // never touch the setting; users can raise it on the account page.
+    const userLimit = Number(profile.monthly_spending_limit)
+    const hasOwnLimit = Number.isFinite(userLimit) && userLimit > 0
+    const limit = hasOwnLimit ? userLimit : DEFAULT_MONTHLY_CAP
+
+    // No effective cap (default disabled via env AND no personal limit) — allow
+    if (!limit || limit <= 0) {
       return { allowed: true, currentSpend: 0, limit: 0 }
     }
 
-    // Get current month spend
+    // Get this month's billable spend
     const now = new Date()
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString()
 
@@ -91,14 +104,16 @@ export async function checkSpendingLimit(
       .select('amount')
       .eq('user_id', userId)
       .gte('created_at', monthStart)
+      .gt('amount', 0)
 
     const currentSpend = (usage || []).reduce((sum, u) => sum + Number(u.amount), 0)
-    const limit = Number(profile.monthly_spending_limit)
 
     if (currentSpend + studyPrice > limit) {
       return {
         allowed: false,
-        reason: `Monthly spending limit of $${limit.toFixed(2)} would be exceeded. Current spend: $${currentSpend.toFixed(2)}.`,
+        reason: hasOwnLimit
+          ? `Your monthly limit of $${limit.toFixed(2)} would be exceeded (this month: $${currentSpend.toFixed(2)}). Raise it on your account page.`
+          : `You've reached this month's $${limit.toFixed(2)} study limit. It resets on the 1st — you can raise it anytime on your account page.`,
         currentSpend,
         limit,
       }
