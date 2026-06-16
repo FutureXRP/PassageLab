@@ -404,6 +404,38 @@ alter table public.study_cache add column if not exists updated_at timestamptz n
 
 alter table public.waitlist add column if not exists source text not null default 'landing';
 
+-- ─── Least-privilege hardening ───────────────────────────────────────────────
+-- Supabase grants anon/authenticated broad table privileges by default and
+-- leans on RLS to gate rows. That's correct for the tables above, but a few
+-- objects must be locked down explicitly. Every statement here is idempotent.
+--
+--  • Views bypass RLS, so anon could otherwise read them through the API.
+--  • study_cache/bible_cache are only ever read by the server (service role),
+--    so any public read policy on them is an unintended content leak.
+--  • SECURITY DEFINER functions run with elevated rights — only the server
+--    (service role) should be able to call them.
+--  • profiles is editable by its owner, but a user must not be able to rewrite
+--    billing/stripe/card columns; restrict UPDATE to the fields the app edits.
+
+-- Monitoring view: keep it off the public API (service role / SQL editor only).
+revoke all on public.top_passages from anon, authenticated;
+
+-- Drop any public read policies that may have been added to the caches by
+-- earlier setups — the app reads both only via the service role (bypasses RLS).
+drop policy if exists "Anyone can read study cache" on public.study_cache;
+drop policy if exists "Anyone can read bible cache" on public.bible_cache;
+
+-- SECURITY DEFINER functions: server-side (service role) callers only.
+revoke execute on function public.handle_new_user()                        from anon, authenticated;
+revoke execute on function public.increment_monthly_total(uuid, numeric)   from anon, authenticated;
+revoke execute on function public.increment_cache_hit(text)                from anon, authenticated;
+revoke execute on function public.record_book_recommendations(text, jsonb) from anon, authenticated;
+
+-- profiles: owners may edit only these fields. Billing/stripe/card columns and
+-- current_month_total are written exclusively by the server (service role).
+revoke update on public.profiles from anon, authenticated;
+grant  update (full_name, monthly_spending_limit) on public.profiles to authenticated;
+
 -- Tell PostgREST (Supabase's API layer) to reload its schema cache so new
 -- columns are visible immediately — fixes "Could not find the ... column
 -- in the schema cache" without waiting for the automatic reload
