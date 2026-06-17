@@ -58,6 +58,9 @@ export function getTabsForRoles(roles: Role[]): { quick: string[], deep: string[
     ROLE_TABS[role]?.forEach(t => allSet.add(t))
     DEEP_TABS[role]?.forEach(t => allSet.add(t))
   })
+  // The Sources page ships on every study — it's the verification apparatus a
+  // scholar/student needs regardless of role. Haiku, so it stays in the $1 tier.
+  allSet.add('citations')
   const all = TAB_ORDER.filter(t => allSet.has(t))
   // Split by model — Haiku = $1 quick, Sonnet = $2 deep
   const quick = all.filter(t => (TAB_MODELS[t] || 'haiku') === 'haiku')
@@ -125,7 +128,9 @@ export const TAB_TOKENS: Record<string, number> = {
   archaeology:     4500,
   apologetics_deep:4000,
   books:           2000,
-  citations:       1500,
+  // Sources page is intentionally large — a robust bibliography (25-30 works
+  // across categories, each with multiple citation styles). Haiku, so cheap.
+  citations:       5000,
 }
 
 // ─── Bible text injection ──────────────────────────────────────────────────
@@ -534,55 +539,29 @@ Include a note for every verse or verse group in the passage.`,
   ]
 }}`,
 
-  citations: (p, b) => `${passageBlock(p, b)}Generate a complete academic citations page for a student studying this passage. Return JSON:
+  citations: (p, b) => `${passageBlock(p, b)}Build an exhaustive academic SOURCES page for serious study of this passage — the bibliography a seminary student or scholar would actually consult and cite. Favor real, recognized works spanning classic and contemporary scholarship and multiple traditions (Reformed, Catholic, evangelical, critical). More reputable sources is better. Never invent an ISBN — leave it empty if you are not certain. Return JSON:
 {"citations":{
-  "disclaimer":"AI-generated citations — always verify before academic submission. Page numbers, editions, and ISBNs should be confirmed against your library catalog.",
+  "disclaimer":"These sources are AI-generated from the standard scholarly literature on this passage. Verify each against a library catalog or database before citing — confirm author, edition, year, and page numbers.",
   "commentaries":[{
-    "author_last":"Last name",
-    "author_first":"First name",
-    "title":"Full title",
-    "series":"Commentary series if applicable",
-    "publisher":"Publisher",
-    "location":"Publication city",
-    "year":"Publication year",
-    "isbn":"ISBN if known",
-    "turabian":"Full Turabian formatted citation",
-    "sbl":"Full SBL formatted citation",
-    "mla":"Full MLA formatted citation",
-    "verified":false
-  }],
-  "lexicons":[{
-    "short_name":"BDAG or BDB etc",
-    "full_title":"Full title",
-    "editor":"Editor name",
-    "edition":"Edition number",
-    "publisher":"Publisher",
-    "year":"Year",
-    "turabian":"Turabian citation",
-    "sbl":"SBL citation",
-    "verified":false
+    "author_last":"Last name","author_first":"First name","title":"Full title","series":"Commentary series if applicable","publisher":"Publisher","location":"Publication city","year":"Publication year","isbn":"ISBN-13 if certain, else empty string",
+    "turabian":"Full Turabian formatted citation","sbl":"Full SBL formatted citation","mla":"Full MLA formatted citation","verified":false
   }],
   "background_works":[{
-    "author_last":"Last",
-    "author_first":"First",
-    "title":"Title",
-    "publisher":"Publisher",
-    "year":"Year",
-    "turabian":"Turabian citation",
-    "sbl":"SBL citation",
-    "verified":false
+    "author_last":"Last","author_first":"First","title":"Title of monograph or key study","publisher":"Publisher","location":"City","year":"Year","isbn":"ISBN-13 if certain, else empty",
+    "turabian":"Turabian citation","sbl":"SBL citation","mla":"MLA citation","verified":false
+  }],
+  "lexicons":[{
+    "short_name":"BDAG / BDB / HALOT / TDNT etc","full_title":"Full title","editor":"Editor name","edition":"Edition","publisher":"Publisher","year":"Year",
+    "turabian":"Turabian citation","sbl":"SBL citation","verified":false
   }],
   "journal_searches":[{
-    "database":"JSTOR or ATLA or EBSCOhost",
-    "suggested_search_terms":"specific search terms to use",
-    "notes":"What kind of articles to look for"
+    "database":"ATLA Religion / JSTOR / EBSCOhost","suggested_search_terms":"specific search terms to use","notes":"what kind of articles to look for"
   }],
   "free_online_resources":[{
-    "name":"Resource name",
-    "description":"What it contains and why it's useful",
-    "url":"Full URL"
+    "name":"Resource name","description":"What it contains and why it's useful","url":"Full real URL"
   }]
-}}`,
+}}
+Provide 8-10 commentaries, 8-10 background_works (monographs and major studies), 3-4 lexicons/reference works, 3-4 journal_searches, and 5-6 free_online_resources. Use only real works.`,
 }
 
 // ─── Public API ────────────────────────────────────────────────────────────
