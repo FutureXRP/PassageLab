@@ -221,56 +221,65 @@ export async function POST(req: NextRequest) {
     // The system prompt and Bible text are identical across all tabs in a
     // study session — marking them ephemeral caches them for ~5 minutes,
     // saving 90% on those input tokens for every subsequent tab call.
-    const response = await anthropic.messages.create({
-      model,
-      max_tokens: maxTokens,
-      system: [
-        {
-          type: 'text',
-          text: SYSTEM_PROMPT,
-          cache_control: { type: 'ephemeral' },
-        }
-      ],
-      messages: [
-        {
-          role: 'user',
-          content: [
-            {
-              // Bible text block — cached across all tabs for this passage
-              type: 'text',
-              text: bibleBlock,
-              cache_control: { type: 'ephemeral' },
-            },
-            {
-              // Tab-specific prompt — NOT cached (unique per tab)
-              type: 'text',
-              text: tabPrompt,
-            }
-          ]
-        }
-      ],
-    })
+    // Model JSON occasionally arrives malformed (a stray quote or raw newline
+    // inside a string) or truncated — both non-deterministic. Rather than fail
+    // the tab, re-roll once with a larger token budget. Prompt caching keeps
+    // the retry's input nearly free, so most "Failed to parse" blips vanish
+    // without the user ever seeing the error.
+    let response: Anthropic.Message | null = null
+    let parsed:   Record<string, unknown> | null = null
+    let truncated = false
 
-    // ── Check for truncation ──────────────────────────────────────────────
-    const truncated = response.stop_reason === 'max_tokens'
-    if (truncated) {
-      console.warn(`Tab ${tabId} hit max_tokens — attempting recovery. Tokens: ${response.usage.output_tokens}`)
+    for (let attempt = 0; attempt < 2 && parsed === null; attempt++) {
+      const tokens = attempt === 0 ? maxTokens : Math.max(Math.ceil(maxTokens * 1.5), 4096)
+      response = await anthropic.messages.create({
+        model,
+        max_tokens: tokens,
+        system: [
+          {
+            type: 'text',
+            text: SYSTEM_PROMPT,
+            cache_control: { type: 'ephemeral' },
+          }
+        ],
+        messages: [
+          {
+            role: 'user',
+            content: [
+              {
+                // Bible text block — cached across all tabs for this passage
+                type: 'text',
+                text: bibleBlock,
+                cache_control: { type: 'ephemeral' },
+              },
+              {
+                // Tab-specific prompt — NOT cached (unique per tab)
+                type: 'text',
+                text: tabPrompt,
+              }
+            ]
+          }
+        ],
+      })
+
+      truncated = response.stop_reason === 'max_tokens'
+
+      const rawText = response.content
+        .filter(b => b.type === 'text')
+        .map(b => (b as Anthropic.TextBlock).text)
+        .join('')
+      const cleaned = rawText.replace(/```json/g, '').replace(/```/g, '').trim()
+
+      try {
+        parsed = parseModelJson(cleaned)
+      } catch {
+        console.error(`Parse error on tab ${tabId} (attempt ${attempt + 1}/2). Truncated: ${truncated}. First 800 chars:`)
+        console.error(rawText.slice(0, 800))
+        // parsed stays null → loop retries once, then falls through to the error
+      }
     }
 
-    // ── Parse response ────────────────────────────────────────────────────
-    const rawText = response.content
-      .filter(b => b.type === 'text')
-      .map(b => (b as Anthropic.TextBlock).text)
-      .join('')
-
-    const cleaned = rawText.replace(/```json/g, '').replace(/```/g, '').trim()
-
-    let parsed: Record<string, unknown>
-    try {
-      parsed = parseModelJson(cleaned)
-    } catch {
-      console.error(`Parse error on tab ${tabId}. Truncated: ${truncated}. Raw first 800 chars:`)
-      console.error(rawText.slice(0, 800))
+    if (parsed === null || response === null) {
       return NextResponse.json({
         error:   'parse_error',
         message: truncated

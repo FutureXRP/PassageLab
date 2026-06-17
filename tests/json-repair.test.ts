@@ -43,6 +43,20 @@ describe('parseModelJson', () => {
     expect(out.quote).toContain('He said')
   })
 
+  it('escapes a raw newline inside a string (the completed-but-malformed case)', () => {
+    // Model finished (not truncated) but left a literal newline in a value —
+    // JSON.parse rejects this; the parser must escape it and recover.
+    const out = parseModelJson('{"genre_rules":"First line.\nSecond line.","ok":true}')
+    expect(out.ok).toBe(true)
+    expect(out.genre_rules).toContain('First line.')
+    expect(out.genre_rules).toContain('Second line.')
+  })
+
+  it('escapes raw tabs inside strings', () => {
+    const out = parseModelJson('{"a":"x\ty"}')
+    expect(out.a).toBe('x\ty')
+  })
+
   it('throws when no object is present', () => {
     expect(() => parseModelJson('no json here at all')).toThrow()
   })

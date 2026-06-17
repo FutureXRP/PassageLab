@@ -11,7 +11,11 @@ export function parseModelJson(raw: string): Record<string, unknown> {
   const cleaned = raw.replace(/```json/gi, '').replace(/```/g, '').trim()
   const start = cleaned.indexOf('{')
   if (start === -1) throw new Error('No JSON object found')
-  const str = cleaned.slice(start)
+  // Escape raw control characters that the model sometimes leaves unescaped
+  // inside string values (literal newlines/tabs) — JSON.parse rejects those,
+  // and it's the most common non-truncation failure. Safe: only characters
+  // *inside* strings are touched, so structural whitespace is untouched.
+  const str = escapeControlCharsInStrings(cleaned.slice(start))
 
   // 1. Direct parse
   try { return JSON.parse(str) } catch {}
@@ -41,6 +45,27 @@ export function parseModelJson(raw: string): Record<string, unknown> {
   }
 
   throw new Error('Unable to repair truncated JSON')
+}
+
+// Escape JSON-illegal raw control characters (newlines, tabs, etc.) that
+// appear inside string values. Characters outside strings — the whitespace
+// between tokens — are left untouched so structure is preserved.
+function escapeControlCharsInStrings(s: string): string {
+  let out = ''
+  let inString = false
+  let escape = false
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i]
+    if (escape)            { out += ch; escape = false; continue }
+    if (ch === '\\')       { out += ch; if (inString) escape = true; continue }
+    if (ch === '"')        { inString = !inString; out += ch; continue }
+    if (inString && ch.charCodeAt(0) < 0x20) {
+      out += ch === '\n' ? '\\n' : ch === '\r' ? '\\r' : ch === '\t' ? '\\t' : ' '
+      continue
+    }
+    out += ch
+  }
+  return out
 }
 
 function closeOpenStructures(s: string): Record<string, unknown> | null {
