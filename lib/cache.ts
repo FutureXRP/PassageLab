@@ -161,3 +161,54 @@ export async function setCachedBibleText(
     // Non-fatal
   }
 }
+
+// ─── Verified-source search cache ────────────────────────────────────────────
+// Results from the free scholarly APIs (OpenAlex/Crossref/Google Books). They
+// change slowly, so a 30-day TTL keeps repeat lookups instant and polite to
+// the upstream APIs.
+
+const SOURCE_CACHE_TTL_DAYS = 30
+
+export async function getCachedSources(
+  passage: string
+): Promise<Record<string, unknown> | null> {
+  const supabase = getSupabase()
+  if (!supabase) return null
+  try {
+    const { data, error } = await supabase
+      .from('source_search_cache')
+      .select('content, expires_at')
+      .eq('passage_norm', normalizePassage(passage))
+      .single()
+    if (error || !data) return null
+    if (new Date(data.expires_at) < new Date()) {
+      supabase.from('source_search_cache').delete().eq('passage_norm', normalizePassage(passage)).then(() => {})
+      return null
+    }
+    return data.content as Record<string, unknown>
+  } catch {
+    return null
+  }
+}
+
+export async function setCachedSources(
+  passage: string,
+  content: Record<string, unknown>
+): Promise<void> {
+  const supabase = getSupabase()
+  if (!supabase) return
+  try {
+    const expiresAt = new Date()
+    expiresAt.setDate(expiresAt.getDate() + SOURCE_CACHE_TTL_DAYS)
+    await supabase
+      .from('source_search_cache')
+      .upsert({
+        passage_norm: normalizePassage(passage),
+        content,
+        expires_at:   expiresAt.toISOString(),
+        created_at:   new Date().toISOString(),
+      }, { onConflict: 'passage_norm', ignoreDuplicates: false })
+  } catch {
+    // Non-fatal
+  }
+}

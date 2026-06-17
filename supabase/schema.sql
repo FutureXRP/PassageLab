@@ -117,6 +117,17 @@ create table if not exists public.bible_cache (
   created_at    timestamptz not null default now()
 );
 
+-- ─── Verified-source search cache ────────────────────────────────────────────
+-- Results from the free scholarly APIs (OpenAlex / Crossref / Google Books)
+-- used by /api/sources. 30-day TTL keeps repeat lookups instant.
+
+create table if not exists public.source_search_cache (
+  passage_norm  text primary key,
+  content       jsonb not null,
+  expires_at    timestamptz not null,
+  created_at    timestamptz not null default now()
+);
+
 -- ─── Waitlist ────────────────────────────────────────────────────────────────
 -- Unique email constraint is load-bearing: /api/waitlist treats error code
 -- 23505 as "already signed up".
@@ -314,6 +325,7 @@ alter table public.usage_events     enable row level security;
 alter table public.billing_records  enable row level security;
 alter table public.study_cache      enable row level security;
 alter table public.bible_cache      enable row level security;
+alter table public.source_search_cache enable row level security;
 alter table public.waitlist         enable row level security;
 alter table public.affiliate_clicks enable row level security;
 alter table public.book_catalog     enable row level security;
@@ -354,9 +366,9 @@ drop policy if exists "billing_records_select_own" on public.billing_records;
 create policy "billing_records_select_own" on public.billing_records
   for select using (auth.uid() = user_id);
 
--- study_cache, bible_cache, waitlist, affiliate_clicks, book_catalog: no
--- anon/user policies — service-role access only (RLS enabled with no policies
--- denies all other access).
+-- study_cache, bible_cache, source_search_cache, waitlist, affiliate_clicks,
+-- book_catalog: no anon/user policies — service-role access only (RLS enabled
+-- with no policies denies all other access).
 
 -- ─── Migration: upgrade tables created by earlier setups ────────────────────
 -- CREATE TABLE IF NOT EXISTS skips tables that already exist, so columns
