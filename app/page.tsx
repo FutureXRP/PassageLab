@@ -77,7 +77,7 @@ function HomeContent() {
         </div>
 
         <h1 style={{ fontFamily: SERIF, fontSize: 42, fontWeight: 700, color: PARCHMENT, textAlign: 'center' as const, marginBottom: 14, lineHeight: 1.2, maxWidth: 640 }}>
-          Deep study for every passage you preach
+          Deep study for every passage
         </h1>
 
         <p style={{ fontSize: 16, color: SLATE, textAlign: 'center' as const, marginBottom: 48, maxWidth: 480, lineHeight: 1.7 }}>
