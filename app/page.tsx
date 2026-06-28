@@ -208,7 +208,7 @@ function HomeContent() {
         </div>
 
         <a
-          href={`/study/${encodeURIComponent('Ephesians 1:15-23')}?roles=theologian,student&sample=1`}
+          href={`/study/${encodeURIComponent('Ephesians 1:15-23')}?roles=pastor&sample=1`}
           style={{ marginTop: 20, fontSize: 14, fontWeight: 600, color: PARCHMENT, textDecoration: 'none', border: `1px solid ${GOLD}`, borderRadius: 8, padding: '10px 20px' }}
         >
           See a complete sample study →

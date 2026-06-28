@@ -1,12 +1,12 @@
 // PassageLab — lib/sample-study.ts
-// A complete, pre-rendered example study (Ephesians 1:15-23, roles:
-// Theologian + Student) used by /study/...?sample=1 to show prospective users
-// exactly what a finished study looks like — every tab, fully unlocked, with
-// the real coloring and styling. Content mirrors an actual PassageLab result.
+// A complete, pre-rendered example study (Ephesians 1:15-23, role: Pastor)
+// used by /study/...?sample=1 to show prospective users exactly what a
+// finished study looks like — every tab, fully unlocked, with the real
+// coloring and styling. Content mirrors an actual PassageLab result.
 // Static data only; no API calls, no paywall, no charge.
 
 export const SAMPLE_PASSAGE = 'Ephesians 1:15-23'
-export const SAMPLE_ROLES   = ['theologian', 'student']
+export const SAMPLE_ROLES   = ['pastor']
 
 // Shown in the Scripture tab via the bibleText state (KJV, public domain).
 export const SAMPLE_BIBLE_TEXT: Record<string, string> = {
@@ -25,8 +25,9 @@ export const SAMPLE_BIBLE_TEXT: Record<string, string> = {
 
 // Tab grouping mirrors the model routing (Haiku = "quick"/gold row, Sonnet =
 // "deep"/purple row) so the sample's tab bar looks exactly like a real study.
-export const SAMPLE_QUICK_TABS = ['overview', 'scripture', 'history', 'leadership', 'essayoutline', 'books', 'citations']
-export const SAMPLE_DEEP_TABS  = ['language', 'hermeneutics', 'theology', 'crossrefs', 'christ', 'apologetics', 'conflicts', 'commentary', 'fathers', 'archaeology']
+// Pastor role tab set (matches getTabsForRoles(['pastor'])).
+export const SAMPLE_QUICK_TABS = ['overview', 'scripture', 'history', 'illustrations', 'outline', 'leadership', 'books', 'citations']
+export const SAMPLE_DEEP_TABS  = ['language', 'hermeneutics', 'christ', 'apologetics', 'conflicts', 'commentary', 'fathers', 'archaeology']
 
 type SampleTab = { status: 'done'; data: Record<string, unknown>; cached: boolean }
 const done = (data: Record<string, unknown>): SampleTab => ({ status: 'done', data, cached: false })
@@ -464,6 +465,74 @@ export const SAMPLE_TABS: Record<string, SampleTab> = {
         { name: 'STEP Bible (Tyndale House)', url: 'https://www.stepbible.org', description: `Free interlinear, lexicon, and morphology tools for working through the Greek of Ephesians 1:15-23.` },
         { name: 'Bible Hub — Ephesians 1', url: 'https://biblehub.com/ephesians/1.htm', description: `Parallel translations, Strong's numbers, and a range of public-domain commentaries on the passage.` },
       ],
+    },
+  }),
+
+  illustrations: done({
+    illustrations: [
+      {
+        category: 'Analogy',
+        title: 'The Lamp That Was Never Plugged In',
+        content: `A family kept a beautiful lamp on a side table for years and used it only to hold a vase—never realizing it worked. The wiring was sound, the bulb was good; it simply was never connected to the power already running through the wall behind it. The power wasn't missing. The connection was never made.`,
+        bridge: `Paul does not pray that God would give the Ephesians more power, but that they would grasp "the exceeding greatness of his power to us-ward who believe" (v. 19). The resurrection current is already in the wall. The prayer is for eyes to see what is already ours, and faith to live plugged in.`,
+      },
+      {
+        category: 'Story',
+        title: 'The Heir Who Lived Like a Pauper',
+        content: `A man dies and leaves his estranged son a fortune, but the son—convinced the letter is junk mail—never opens the envelope and spends his life scraping by, anxious about every bill, while the inheritance sits untouched in his name. He was never poor. He simply never knew what was his.`,
+        bridge: `Paul prays the church would "know what is the hope of his calling, and what the riches of the glory of his inheritance in the saints" (v. 18). Many believers live spiritually anxious not because they lack an inheritance, but because they have never opened the letter.`,
+      },
+      {
+        category: 'Contemporary',
+        title: 'A City Full of Lords',
+        content: `Ephesus was crowded with competing powers—the temple of Artemis, the imperial cult proclaiming Caesar "Lord and Savior," magic scrolls, and astrologers charting unseen forces that supposedly governed your fate. People lived afraid of powers they could neither see nor satisfy. Our world has its own versions: the algorithm, the diagnosis, the market, the headline that decides whether we sleep.`,
+        bridge: `Into that anxiety Paul names the powers and then dethrones them: Christ is "far above all principality, and power, and might, and dominion" (v. 21). Preaching this means naming what your people actually fear—and announcing the One enthroned above it.`,
+      },
+      {
+        category: 'Historical',
+        title: 'D-Day and V-Day',
+        content: `Historians describe the long months between D-Day and V-Day in 1945: the decisive battle had been won, the outcome was no longer in doubt, yet real fighting and real casualties continued until the final surrender. The victory was secured before it was fully visible.`,
+        bridge: `This is the shape of Paul's "already / not yet." Christ is already raised and enthroned (vv. 20-22), every enemy already under his feet—yet we still live before the final surrender. It guards the church from both despair ("we're losing") and triumphalism ("there's no battle left").`,
+      },
+    ],
+  }),
+
+  outline: done({
+    outline: {
+      title: 'Eyes to See the Power You Already Have',
+      big_idea: `Paul prays that believers would see three realities already theirs in Christ—their hope, their inheritance, and the resurrection power at work in them—because the exalted Christ rules over all things for the sake of his church.`,
+      introduction: `Most of our prayers ask God for something we don't yet have. Paul's prayer for the Ephesians is striking because he asks God for something they already possess—he prays that their eyes would be opened to see it. This is not a prayer for more power, more blessing, or more status, but for the sight to grasp what is already true. Before we ask God to change our circumstances, we need him to open our eyes.`,
+      points: [
+        {
+          point: 'Pray for Eyes That See (vv. 15-18)',
+          subpoints: [
+            `Paul's thanksgiving for their faith and love overflows into unceasing intercession (vv. 15-16).`,
+            `He asks not for new blessings but for a "spirit of wisdom and revelation"—illumination of what God has already revealed (v. 17).`,
+            `The need is enlightened "eyes of your understanding": knowing here is more than information; it is seeing with the heart (v. 18).`,
+          ],
+          application: `Before you ask God for more, ask him to open your eyes to what is already yours in Christ. Make Paul's prayer your prayer this week—for yourself and for the people you lead.`,
+        },
+        {
+          point: 'Know the Power That Raised Christ (vv. 19-20)',
+          subpoints: [
+            `Paul measures "the exceeding greatness of his power" by a single event: the resurrection (v. 19-20).`,
+            `That same power is directed "to us-ward who believe"—not held back, but at work in ordinary Christians.`,
+            `Christian living flows from appropriating power already given, not striving for power withheld.`,
+          ],
+          application: `Stop asking "Is God strong enough for this?" and start asking "Am I trusting the resurrection power already at work in me?" Name one area of defeat and bring it under that power.`,
+        },
+        {
+          point: 'Trust the Christ Who Reigns Over All—For You (vv. 21-23)',
+          subpoints: [
+            `Christ is exalted far above every rival power, in this age and the age to come (v. 21).`,
+            `All things are under his feet, and he is given as head over all things (v. 22).`,
+            `His cosmic rule is exercised "to the church"—his body, filled with his fullness, for your good (vv. 22-23).`,
+          ],
+          application: `Whatever power you fear, the One who holds you also holds it—and he governs it for the sake of his people. Lead your church to live as the body of the enthroned Christ, not as orphans before cosmic threats.`,
+        },
+      ],
+      conclusion: `Paul's prayer is that the church would live not cowering before unseen powers, but as the body of the risen and reigning Christ, filled with his fullness. The same power that emptied the tomb is the power at work in you. The question is not whether it is enough—it is whether your eyes are open to see it.`,
+      invitation: `Will you ask God today to open your eyes—not to give you what you lack, but to see, and live in, what is already yours in the risen, reigning Christ?`,
     },
   }),
 }
