@@ -73,9 +73,9 @@ create index if not exists usage_events_unbilled_idx
 -- Entitlement lookups in /api/tab and /api/checkout
 create index if not exists usage_events_user_passage_idx
   on public.usage_events (user_id, passage) where amount > 0;
--- Free first-study eligibility (one promo row per account)
-create index if not exists usage_events_user_promo_idx
-  on public.usage_events (user_id) where promo = true;
+-- The free first-study eligibility index (usage_events_user_promo_idx) is
+-- created in the migration section below — it references the `promo` column,
+-- which on a pre-existing table only exists after the add-column migration.
 
 -- ─── Billing records ─────────────────────────────────────────────────────────
 -- One row per user per billing period, written by /api/billing/charge.
@@ -408,6 +408,10 @@ alter table public.usage_events add column if not exists billed             bool
 alter table public.usage_events add column if not exists billed_at          timestamptz;
 alter table public.usage_events add column if not exists billing_period     text;
 alter table public.usage_events add column if not exists created_at         timestamptz not null default now();
+
+-- Now that the promo column is guaranteed to exist, create its index
+create index if not exists usage_events_user_promo_idx
+  on public.usage_events (user_id) where promo = true;
 
 alter table public.billing_records add column if not exists quick_study_count        integer not null default 0;
 alter table public.billing_records add column if not exists deep_study_count         integer not null default 0;
