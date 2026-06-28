@@ -1233,6 +1233,7 @@ function PaymentModal({ tier, passage, roles, alreadyPaidQuick, onClose, onSucce
   const [userEmail, setUserEmail] = useState<string | null>(null)
   const [hasCard, setHasCard]   = useState(false)
   const [freeEligible, setFreeEligible] = useState(false)
+  const [couponInput, setCouponInput] = useState('')
   const [error, setError]       = useState('')
   const [setupClientSecret, setSetupClientSecret] = useState<string | null>(null)
 
@@ -1365,7 +1366,7 @@ function PaymentModal({ tier, passage, roles, alreadyPaidQuick, onClose, onSucce
     const res = await fetch('/api/checkout', {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ tier, passage, roles }),
+      body:    JSON.stringify({ tier, passage, roles, couponCode: couponInput.trim() || undefined }),
     })
     const json = await res.json().catch(() => ({}))
     if (!res.ok) {
@@ -1564,6 +1565,15 @@ function PaymentModal({ tier, passage, roles, alreadyPaidQuick, onClose, onSucce
               <span style={{ fontFamily: SERIF, fontSize: 36, fontWeight: 700, color }}>{price}</span>
               <span style={{ fontSize: 13, color: SLATE }}>{isFree ? 'first study · free' : 'charged now'}</span>
             </div>
+
+            {!isFree && (
+              <input
+                placeholder="Coupon code (optional)"
+                value={couponInput}
+                onChange={e => setCouponInput(e.target.value.toUpperCase())}
+                style={{ ...inputStyle, marginBottom: 14 }}
+              />
+            )}
 
             {error && <div style={{ fontSize: 13, color: '#F87171', marginBottom: 12 }}>{error}</div>}
 

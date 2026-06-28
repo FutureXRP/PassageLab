@@ -29,6 +29,15 @@ const supabase = process.env.NEXT_PUBLIC_SUPABASE_URL
     )
   : null
 
+// Best-effort, server-guarded redemption count (the SQL function won't exceed
+// max_redemptions). Never throws into the request path.
+async function redeemCoupon(code: string) {
+  if (!supabase) return
+  try {
+    await supabase.rpc('redeem_coupon', { p_code: code })
+  } catch { /* ignore */ }
+}
+
 export async function POST(req: NextRequest) {
   try {
     if (!supabase) {
@@ -43,7 +52,7 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    const { tier, passage, roles } = await req.json()
+    const { tier, passage, roles, couponCode } = await req.json()
 
     if (!tier || !passage || (tier !== 'quick' && tier !== 'deep')) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
@@ -98,12 +107,39 @@ export async function POST(req: NextRequest) {
 
     // ── Paid unlock ────────────────────────────────────────────────────────
     // Upgrade pricing: quick → deep costs the difference, not the full deep price.
-    const amount = tier === 'deep'
+    const baseAmount = tier === 'deep'
       ? (unlocks.quick ? PRICES.DEEP_DIVE - PRICES.QUICK_STUDY : PRICES.DEEP_DIVE)
       : PRICES.QUICK_STUDY
 
-    // Enforce the user's own monthly spending limit (a self-imposed budget;
-    // the platform default is off under pay-at-unlock — see lib/usage.ts)
+    // Apply a coupon if supplied — validates active / not expired / under cap.
+    // An invalid code is rejected so the user can correct or remove it.
+    let amount = baseAmount
+    let discount = 0
+    let appliedCoupon: string | null = null
+    if (typeof couponCode === 'string' && couponCode.trim()) {
+      const code = couponCode.trim().toUpperCase()
+      const { data: coupon } = await supabase
+        .from('coupons').select('*').eq('code', code).maybeSingle()
+      const valid = !!coupon
+        && coupon.active === true
+        && (coupon.expires_at == null || new Date(coupon.expires_at).getTime() > Date.now())
+        && (coupon.max_redemptions == null || coupon.redemptions < coupon.max_redemptions)
+      if (!valid) {
+        return NextResponse.json(
+          { error: 'invalid_coupon', message: "That coupon code isn't valid or has expired." },
+          { status: 400 }
+        )
+      }
+      discount = coupon!.type === 'percent'
+        ? Math.round(baseAmount * Number(coupon!.value)) / 100
+        : Number(coupon!.value)
+      discount = Math.min(discount, baseAmount)
+      amount = Math.max(0, Math.round((baseAmount - discount) * 100) / 100)
+      appliedCoupon = code
+    }
+
+    // Enforce the user's own monthly spending limit on the amount actually
+    // charged (self-imposed budget; the platform default is off — lib/usage.ts)
     const limitCheck = await checkSpendingLimit(user.id, amount)
     if (!limitCheck.allowed) {
       return NextResponse.json({
@@ -112,6 +148,19 @@ export async function POST(req: NextRequest) {
         currentSpend: limitCheck.currentSpend,
         limit:        limitCheck.limit,
       }, { status: 402 })
+    }
+
+    // A coupon that covers the full price → a real unlock with no charge.
+    if (appliedCoupon && amount <= 0) {
+      const { error: couponFreeErr } = await supabase.from('usage_events').insert({
+        user_id: user.id, passage, roles: rolesArr, tab_ids: [tier],
+        study_type: studyType, amount: 0, cached: false,
+        coupon_code: appliedCoupon, discount_amount: discount,
+        billed: true, billed_at: new Date().toISOString(),
+      })
+      if (couponFreeErr) throw couponFreeErr
+      await redeemCoupon(appliedCoupon)
+      return NextResponse.json({ success: true, amount: 0, coupon: appliedCoupon, discount })
     }
 
     if (!stripe) {
@@ -171,6 +220,8 @@ export async function POST(req: NextRequest) {
       study_type: studyType,
       amount,
       cached:     false,
+      coupon_code: appliedCoupon,
+      discount_amount: discount,
       billed:     true,
       billed_at:  new Date().toISOString(),
       stripe_payment_intent_id: paymentIntent.id,
@@ -184,13 +235,16 @@ export async function POST(req: NextRequest) {
       )
     }
 
+    // Count the coupon redemption now that the charge succeeded
+    if (appliedCoupon) await redeemCoupon(appliedCoupon)
+
     // Keep the profile's running monthly total in sync (display only — never
     // fail the unlock over it; the charge has already succeeded)
     try {
       await supabase.rpc('increment_monthly_total', { p_user_id: user.id, p_amount: amount })
     } catch { /* ignore */ }
 
-    return NextResponse.json({ success: true, amount })
+    return NextResponse.json({ success: true, amount, coupon: appliedCoupon, discount })
 
   } catch (err: any) {
     console.error('Checkout error:', err?.message)

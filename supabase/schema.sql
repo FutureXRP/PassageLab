@@ -431,6 +431,69 @@ alter table public.waitlist add column if not exists source text not null defaul
 -- book_catalog gained a verification backoff timestamp after its first release
 alter table public.book_catalog add column if not exists last_checked_at timestamptz;
 
+-- ─── Admin: coupons, refunds, render failures ────────────────────────────────
+-- Powers the /admin dashboard (reporting, coupon management, refunds, and
+-- render-failure tracking). All idempotent.
+
+-- Discount codes applied at checkout. Code is the primary key — store uppercase.
+create table if not exists public.coupons (
+  code             text primary key,
+  description      text,
+  type             text not null check (type in ('percent', 'fixed')),
+  value            numeric(10,2) not null,            -- percent (1-100) or fixed $ off
+  active           boolean not null default true,
+  max_redemptions  integer,                           -- null = unlimited
+  redemptions      integer not null default 0,
+  expires_at       timestamptz,
+  created_at       timestamptz not null default now()
+);
+
+-- Render failures — a tab that errored or failed to parse for a signed-in user.
+-- The admin dashboard lists unresolved failures so the affected study can be refunded.
+create table if not exists public.render_failures (
+  id          uuid primary key default gen_random_uuid(),
+  user_id     uuid references public.profiles (id) on delete set null,
+  passage     text not null,
+  roles       text[] not null default '{}',
+  tab_id      text not null,
+  study_type  text,
+  error       text,
+  resolved    boolean not null default false,
+  created_at  timestamptz not null default now()
+);
+create index if not exists render_failures_unresolved_idx
+  on public.render_failures (created_at desc) where resolved = false;
+
+-- usage_events: coupon + refund tracking (idempotent)
+alter table public.usage_events add column if not exists coupon_code      text;
+alter table public.usage_events add column if not exists discount_amount  numeric(10,2) not null default 0;
+alter table public.usage_events add column if not exists refunded         boolean not null default false;
+alter table public.usage_events add column if not exists refunded_at      timestamptz;
+alter table public.usage_events add column if not exists stripe_refund_id text;
+
+-- New tables are server-only: RLS on with no policies denies anon/user access;
+-- the admin API routes read them with the service-role key (which bypasses RLS).
+alter table public.coupons         enable row level security;
+alter table public.render_failures enable row level security;
+
+-- Atomic coupon redemption — increments the counter only while the coupon is
+-- active and under its cap (guards against exceeding max_redemptions). Called
+-- by /api/checkout via the service role.
+create or replace function public.redeem_coupon(p_code text)
+returns void
+language plpgsql
+security definer set search_path = public
+as $$
+begin
+  update public.coupons
+  set redemptions = redemptions + 1
+  where code = p_code
+    and active = true
+    and (max_redemptions is null or redemptions < max_redemptions);
+end;
+$$;
+revoke execute on function public.redeem_coupon(text) from anon, authenticated;
+
 -- ─── Least-privilege hardening ───────────────────────────────────────────────
 -- Supabase grants anon/authenticated broad table privileges by default and
 -- leans on RLS to gate rows. That's correct for the tables above, but a few

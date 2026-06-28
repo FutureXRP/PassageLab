@@ -22,6 +22,7 @@ import {
 import {
   getUnlockStatus,
   recordUsageEvent,
+  recordRenderFailure,
 } from '@/lib/usage'
 import { getAuthUser } from '@/lib/auth'
 import { rateLimit, clientIp } from '@/lib/rate-limit'
@@ -70,6 +71,14 @@ function estimateCost(
 // ─── Route handler ─────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
+  // Hoisted so the parse-error path and the catch block can record a render
+  // failure for the affected (paid) study.
+  let userId: string | null = null
+  let passage = ''
+  let roles: string[] = []
+  let tabId = ''
+  let studyType: 'quick' | 'deep' = 'quick'
+
   try {
     // ── Rate limit (per IP) ───────────────────────────────────────────────
     if (!rateLimit(`tab:${clientIp(req.headers)}`, 30, 5 * 60_000)) {
@@ -80,7 +89,9 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json()
-    const { passage, roles, tabId } = body
+    passage = body.passage
+    roles   = body.roles
+    tabId   = body.tabId
 
     // ── Validate ──────────────────────────────────────────────────────────
     if (!passage || typeof passage !== 'string') {
@@ -93,7 +104,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'At least one role is required' }, { status: 400 })
     }
 
-    const studyType  = isDeepTab(tabId) ? 'deep' : 'quick'
+    studyType  = isDeepTab(tabId) ? 'deep' : 'quick'
     const studyPrice = getStudyPrice([tabId])
 
     // ── Paywall enforcement (server-side) ─────────────────────────────────
@@ -102,7 +113,7 @@ export async function POST(req: NextRequest) {
     // passage at the right tier. The user comes from the session cookie —
     // never from the request body.
     const user = await getAuthUser()
-    const userId = user?.id || null
+    userId = user?.id || null
 
     if (tabId !== 'overview') {
       if (!userId) {
@@ -280,6 +291,12 @@ export async function POST(req: NextRequest) {
     }
 
     if (parsed === null || response === null) {
+      if (userId && tabId !== 'overview') {
+        recordRenderFailure({
+          userId, passage, roles, tabId, studyType,
+          error: truncated ? 'Response truncated (max_tokens) — parse failed' : 'Failed to parse AI response',
+        }).catch(() => {})
+      }
       return NextResponse.json({
         error:   'parse_error',
         message: truncated
@@ -346,6 +363,13 @@ export async function POST(req: NextRequest) {
         error:   'rate_limited',
         message: 'Servers are busy. Please try again in a moment.',
       }, { status: 429 })
+    }
+
+    if (userId && tabId && tabId !== 'overview') {
+      recordRenderFailure({
+        userId, passage, roles, tabId, studyType,
+        error: String(err?.message || err),
+      }).catch(() => {})
     }
 
     return NextResponse.json({

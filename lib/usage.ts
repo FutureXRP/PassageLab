@@ -55,7 +55,9 @@ export async function getUnlockStatus(
       .select('study_type')
       .eq('user_id', userId)
       .eq('passage', passage)
-      .or('amount.gt.0,promo.is.true')
+      // A paid charge (amount > 0), the free claim (promo), or a coupon
+      // redemption (which may discount to $0) all count as an unlock.
+      .or('amount.gt.0,promo.is.true,coupon_code.not.is.null')
 
     const types = new Set((data || []).map(e => e.study_type))
     return {
@@ -189,6 +191,34 @@ export async function recordUsageEvent(params: {
     if (error) throw error
   } catch (err) {
     console.error('Usage recording failed:', err)
+  }
+}
+
+// ─── Record a render failure ─────────────────────────────────────────────────
+// A tab that errored or failed to parse for a signed-in user. Surfaced in the
+// /admin dashboard so the affected (paid) study can be refunded. Fire-and-forget.
+
+export async function recordRenderFailure(params: {
+  userId: string
+  passage: string
+  roles: string[]
+  tabId: string
+  studyType: 'quick' | 'deep'
+  error: string
+}): Promise<void> {
+  if (!supabase) return
+  try {
+    await supabase.from('render_failures').insert({
+      user_id:    params.userId,
+      passage:    params.passage,
+      roles:      params.roles,
+      tab_id:     params.tabId,
+      study_type: params.studyType,
+      error:      params.error.slice(0, 500),
+      created_at: new Date().toISOString(),
+    })
+  } catch (err) {
+    console.error('Render-failure recording failed:', err)
   }
 }
 
