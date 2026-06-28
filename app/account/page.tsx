@@ -1,7 +1,9 @@
 'use client'
 
 // PassageLab — app/account/page.tsx
-// Account dashboard: month summary, spending limit, card on file, billing history
+// Account dashboard: month summary, spending limit, card on file, recent studies.
+// Studies are charged in real time at unlock (pay-at-unlock) — there is no
+// month-end bill; "This Month" is just the running total charged so far.
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
@@ -103,7 +105,7 @@ export default function AccountPage() {
         .select('amount, study_type')
         .eq('user_id', uid)
         .gte('created_at', monthStart)
-        .gt('amount', 0),
+        .or('amount.gt.0,promo.is.true'),   // include the free study in counts (it adds $0 to spend)
       supabase.from('usage_events')
         .select('passage, study_type, amount, promo, created_at')
         .eq('user_id', uid)
@@ -242,7 +244,7 @@ export default function AccountPage() {
               <div style={{ display: 'flex', gap: 32, flexWrap: 'wrap' }}>
                 <div>
                   <div style={{ fontFamily: SERIF, fontSize: 32, fontWeight: 700, color: GOLD }}>${monthSpend.toFixed(2)}</div>
-                  <div style={{ fontSize: 12, color: SLATE }}>spend so far</div>
+                  <div style={{ fontSize: 12, color: SLATE }}>charged this month</div>
                 </div>
                 <div>
                   <div style={{ fontFamily: SERIF, fontSize: 32, fontWeight: 700 }}>{quickCount}</div>
@@ -254,7 +256,10 @@ export default function AccountPage() {
                 </div>
               </div>
               <div style={{ fontSize: 12, color: SLATE, marginTop: 14 }}>
-                Charged at unlock{profile?.card_last4 ? ` to ${profile.card_brand || 'card'} •••• ${profile.card_last4}` : ' — no card on file yet'}.
+                Paid in real time at unlock{profile?.card_last4 ? ` to ${profile.card_brand || 'card'} •••• ${profile.card_last4}` : ' — no card on file yet'}. No monthly bill.
+              </div>
+              <div style={{ fontSize: 12, color: SLATE, marginTop: 6 }}>
+                Quick Study <span style={{ color: GOLD, fontWeight: 600 }}>$2</span> · Deep Dive <span style={{ color: '#A78BFA', fontWeight: 600 }}>$5</span> · your first study is free
               </div>
             </div>
 
@@ -262,7 +267,7 @@ export default function AccountPage() {
             <div style={card}>
               <div style={secTitle}>Monthly Spending Limit</div>
               <div style={{ fontSize: 13, color: SLATE, marginBottom: 14, lineHeight: 1.6 }}>
-                Studies that would push you past this amount are blocked until next month. Leave blank for no limit.
+                A cap on your own spending: once your charges this month reach this amount, new unlocks are blocked until the 1st. Leave blank for no limit.
               </div>
               <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
                 <span style={{ fontSize: 16, color: GOLD }}>$</span>
