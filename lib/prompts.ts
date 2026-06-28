@@ -585,19 +585,20 @@ export function getTabTokens(tabId: string): number {
 }
 
 // ─── Pricing ───────────────────────────────────────────────────────────────
-// Haiku tab = $1 study price
-// Sonnet tab = $2 study price
-// Price is per-tab but charged as flat rate per study tier
+// Haiku tab = $2 study price (Quick Study tier)
+// Sonnet tab = $5 study price (Deep Dive tier)
+// Price is per-tab but charged as a flat rate per study tier.
+// Source of truth for charging is PRICES in lib/usage.ts — keep these in sync.
 
 export function isDeepTab(tabId: string): boolean {
   return (TAB_MODELS[tabId] || 'haiku') === 'sonnet'
 }
 
 export function getTabPrice(tabId: string): number {
-  return isDeepTab(tabId) ? 2.00 : 1.00
+  return isDeepTab(tabId) ? 5.00 : 2.00
 }
 
 export function getStudyPrice(tabIds: string[]): number {
-  // If any tab in the study is Sonnet, it's a $2 study
-  return tabIds.some(t => isDeepTab(t)) ? 2.00 : 1.00
+  // If any tab in the study is Sonnet, it's a $5 (Deep Dive) study
+  return tabIds.some(t => isDeepTab(t)) ? 5.00 : 2.00
 }

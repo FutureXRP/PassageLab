@@ -1138,9 +1138,10 @@ function TabContent({ tabId, data, bibleText, bibleVersion, passage }: {
 
 // ─── Card form (inside Stripe Elements) ───────────────────────────────────
 
-function CardForm({ color, clientSecret, onSuccess, onError }: {
+function CardForm({ color, clientSecret, ctaLabel, onSuccess, onError }: {
   color:        string
   clientSecret: string
+  ctaLabel:     string
   onSuccess:    (setupIntentId: string) => void
   onError:      (msg: string) => void
 }) {
@@ -1206,7 +1207,7 @@ function CardForm({ color, clientSecret, onSuccess, onError }: {
           fontFamily:   "'DM Sans', system-ui, sans-serif",
         }}
       >
-        {loading ? 'Saving card…' : 'Save Card & Unlock'}
+        {loading ? 'Saving card…' : ctaLabel}
       </button>
     </div>
   )
@@ -1231,12 +1232,18 @@ function PaymentModal({ tier, passage, roles, alreadyPaidQuick, onClose, onSucce
   const [userId, setUserId]     = useState<string | null>(null)
   const [userEmail, setUserEmail] = useState<string | null>(null)
   const [hasCard, setHasCard]   = useState(false)
+  const [freeEligible, setFreeEligible] = useState(false)
   const [error, setError]       = useState('')
   const [setupClientSecret, setSetupClientSecret] = useState<string | null>(null)
 
   const isDeep = tier === 'deep'
   const color  = isDeep ? PURPLE : GOLD
-  const price  = isDeep ? (alreadyPaidQuick ? '+$1' : '$2') : '$1'
+  // isFree: confirmed free (logged in, hasn't used the free study, basic tier).
+  // pitchFree: also pitch "free" on the pre-auth info step, which only logged-out
+  // users ever see — most are new, so lead with the free offer.
+  const isFree    = !isDeep && freeEligible
+  const pitchFree = !isDeep && (freeEligible || !userId)
+  const price  = isFree ? 'Free' : isDeep ? (alreadyPaidQuick ? '+$3' : '$5') : '$2'
   const label  = isDeep ? 'Deep Dive' : 'Quick Study'
   const tabs   = isDeep
     ? (alreadyPaidQuick
@@ -1246,6 +1253,23 @@ function PaymentModal({ tier, passage, roles, alreadyPaidQuick, onClose, onSucce
            'Commentary', 'Church Fathers', 'Archaeology'])
     : ['Scripture', 'Historical', 'Illustrations', 'Outline', 'Leadership', 'Book List']
 
+  // Eligible for the free first basic study if the account has never claimed
+  // one (no promo usage_event). Fails closed (not eligible) on error.
+  async function checkFreeEligibility(uid: string) {
+    if (!supabase) return
+    try {
+      const { data } = await supabase
+        .from('usage_events')
+        .select('id')
+        .eq('user_id', uid)
+        .eq('promo', true)
+        .limit(1)
+      setFreeEligible((data?.length ?? 0) === 0)
+    } catch {
+      setFreeEligible(false)
+    }
+  }
+
   // Check if already logged in on mount
   useEffect(() => {
     async function checkSession() {
@@ -1254,6 +1278,7 @@ function PaymentModal({ tier, passage, roles, alreadyPaidQuick, onClose, onSucce
       if (session?.user) {
         setUserId(session.user.id)
         setUserEmail(session.user.email || null)
+        await checkFreeEligibility(session.user.id)
         // Check if they have a card on file
         const { data: profile } = await supabase
           .from('profiles')
@@ -1306,6 +1331,7 @@ function PaymentModal({ tier, passage, roles, alreadyPaidQuick, onClose, onSucce
         if (data.user) {
           setUserId(data.user.id)
           setUserEmail(data.user.email || null)
+          await checkFreeEligibility(data.user.id)
         }
       } else {
         const { data, error: authError } = await supabase.auth.signInWithPassword({ email, password })
@@ -1313,6 +1339,7 @@ function PaymentModal({ tier, passage, roles, alreadyPaidQuick, onClose, onSucce
         if (data.user) {
           setUserId(data.user.id)
           setUserEmail(data.user.email || null)
+          await checkFreeEligibility(data.user.id)
           // Check for existing card
           const { data: profile } = await supabase
             .from('profiles')
@@ -1427,14 +1454,16 @@ function PaymentModal({ tier, passage, roles, alreadyPaidQuick, onClose, onSucce
             </div>
             <div style={{ fontSize: 14, color: SLATE, marginBottom: 24, lineHeight: 1.6 }}>
               {isDeep
-                ? 'All tabs included — practical and scholarly. Maximum you\'ll ever pay for one study.'
+                ? 'All tabs included — practical and scholarly. The most you\'ll ever pay for one study.'
                 : 'Practical study tabs for sermon and lesson prep.'
-              } Billed once at month end.
+              } {pitchFree
+                ? 'Your first study is on us — add a card to claim it, no charge today.'
+                : 'You\'re charged the moment you unlock — nothing before, nothing after.'}
             </div>
 
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 20 }}>
-              <span style={{ fontFamily: SERIF, fontSize: 48, fontWeight: 700, color }}>{price}</span>
-              <span style={{ fontSize: 14, color: SLATE }}>this study · billed monthly</span>
+              <span style={{ fontFamily: SERIF, fontSize: 48, fontWeight: 700, color }}>{pitchFree ? 'Free' : price}</span>
+              <span style={{ fontSize: 14, color: SLATE }}>{pitchFree ? 'first study · free' : 'this study · charged now'}</span>
             </div>
 
             <div style={{ marginBottom: 20 }}>
@@ -1447,15 +1476,17 @@ function PaymentModal({ tier, passage, roles, alreadyPaidQuick, onClose, onSucce
             </div>
 
             <div style={{ background: 'rgba(201,151,58,0.06)', border: '0.5px solid rgba(201,151,58,0.2)', borderRadius: 8, padding: '10px 14px', marginBottom: 24, fontSize: 12, color: SLATE, lineHeight: 1.6 }}>
-              <span style={{ color: GOLD, fontWeight: 600 }}>How billing works: </span>
-              Studies tracked and billed once at month end. Card required to unlock — no charge until billing day.
+              <span style={{ color: GOLD, fontWeight: 600 }}>How it works: </span>
+              {pitchFree
+                ? 'Add a card to claim your free study — no charge today. After that, you pay only when you unlock a study.'
+                : 'Pay only for what you unlock. Your card is charged the moment you unlock — no subscription, no monthly bill.'}
             </div>
 
             <button onClick={() => setStep('auth')} style={btnPrimary}>
-              Continue — {price}
+              {pitchFree ? 'Claim your free study' : `Continue — ${price}`}
             </button>
             <div style={{ fontSize: 11, color: SLATE, textAlign: 'center' }}>
-              Secured by Stripe · No charge until month end
+              {pitchFree ? 'Secured by Stripe · No charge today' : 'Secured by Stripe · Charged at unlock'}
             </div>
           </>
         )}
@@ -1517,24 +1548,28 @@ function PaymentModal({ tier, passage, roles, alreadyPaidQuick, onClose, onSucce
         {step === 'card' && (
           <>
             <div style={{ fontFamily: SERIF, fontSize: 22, fontWeight: 700, color: PARCHMENT, marginBottom: 6 }}>
-              {hasCard ? 'Confirm unlock' : 'Add payment method'}
+              {isFree ? 'Claim your free study' : hasCard ? 'Confirm unlock' : 'Add payment method'}
             </div>
             <div style={{ fontSize: 13, color: SLATE, marginBottom: 24 }}>
-              {hasCard
-                ? 'Your saved card will be charged at month end.'
-                : 'Card saved securely by Stripe. Charged at month end, not now.'}
+              {isFree
+                ? (hasCard
+                    ? 'Your first study is free — no charge today.'
+                    : 'Add a card to claim your free study. No charge today; it\'s saved for future studies.')
+                : (hasCard
+                    ? `Your saved card will be charged ${price} now.`
+                    : `Card saved securely by Stripe and charged ${price} now.`)}
             </div>
 
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 24 }}>
               <span style={{ fontFamily: SERIF, fontSize: 36, fontWeight: 700, color }}>{price}</span>
-              <span style={{ fontSize: 13, color: SLATE }}>added to your bill</span>
+              <span style={{ fontSize: 13, color: SLATE }}>{isFree ? 'first study · free' : 'charged now'}</span>
             </div>
 
             {error && <div style={{ fontSize: 13, color: '#F87171', marginBottom: 12 }}>{error}</div>}
 
             {hasCard ? (
               <button onClick={handleUseExistingCard} style={btnPrimary}>
-                Confirm — Unlock {label}
+                {isFree ? 'Claim your free study' : `Pay ${price} — Unlock ${label}`}
               </button>
             ) : (
               stripePromise ? (
@@ -1543,6 +1578,7 @@ function PaymentModal({ tier, passage, roles, alreadyPaidQuick, onClose, onSucce
                     <CardForm
                       color={color}
                       clientSecret={setupClientSecret}
+                      ctaLabel={isFree ? 'Save Card & Claim Free Study' : `Save Card & Pay ${price}`}
                       onSuccess={handleCardSaved}
                       onError={msg => setError(msg)}
                     />
@@ -1559,7 +1595,7 @@ function PaymentModal({ tier, passage, roles, alreadyPaidQuick, onClose, onSucce
             )}
 
             <div style={{ marginTop: 12, fontSize: 11, color: SLATE, textAlign: 'center' }}>
-              Secured by Stripe · No charge until month end
+              {isFree ? 'Secured by Stripe · No charge today' : 'Secured by Stripe · Charged at unlock'}
             </div>
           </>
         )}
@@ -2110,7 +2146,7 @@ export default function StudyPage() {
                   whiteSpace:   'nowrap' as const,
                 }}
               >
-                Quick Study — $1 🔒
+                Quick Study — $2 🔒
               </button>
               {deepTabs.length > 0 && (
                 <button
@@ -2128,7 +2164,7 @@ export default function StudyPage() {
                     whiteSpace:   'nowrap' as const,
                   }}
                 >
-                  Deep Dive — $2 🔒
+                  Deep Dive — $5 🔒
                 </button>
               )}
             </div>
@@ -2138,13 +2174,13 @@ export default function StudyPage() {
         {/* Teaser row in free state */}
         {studyState === 'free' && (
           <div style={{ padding: '6px 20px 8px', background: 'rgba(255,255,255,0.01)', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' as const }}>
-            <span style={{ fontSize: 11, color: GOLD }}>$1 unlocks:</span>
+            <span style={{ fontSize: 11, color: GOLD }}>$2 unlocks:</span>
             {quickTabs.filter(t => t !== 'overview').map(tabId => (
               <span key={tabId} style={{ fontSize: 11, color: 'rgba(201,151,58,0.5)', background: 'rgba(201,151,58,0.04)', border: '0.5px solid rgba(201,151,58,0.12)', borderRadius: 4, padding: '2px 8px' }}>{TAB_LABELS[tabId]}</span>
             ))}
             {deepTabs.length > 0 && (
               <>
-                <span style={{ fontSize: 11, color: PURPLE, marginLeft: 8 }}>$2 unlocks everything:</span>
+                <span style={{ fontSize: 11, color: PURPLE, marginLeft: 8 }}>$5 unlocks everything:</span>
                 {deepTabs.slice(0, 4).map(tabId => (
                   <span key={tabId} style={{ fontSize: 11, color: 'rgba(167,139,250,0.5)', background: 'rgba(167,139,250,0.04)', border: '0.5px solid rgba(167,139,250,0.12)', borderRadius: 4, padding: '2px 8px' }}>{TAB_LABELS[tabId]}</span>
                 ))}
@@ -2159,7 +2195,7 @@ export default function StudyPage() {
           <div style={{ background: 'rgba(255,255,255,0.02)', borderBottom: '0.5px solid rgba(255,255,255,0.06)' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 20px 0' }}>
               <span style={{ fontSize: 10, color: GOLD, textTransform: 'uppercase' as const, letterSpacing: '1px', fontWeight: 600 }}>
-                $1 — Practical Study ✓
+                $2 — Practical Study ✓
               </span>
               {studyState === 'quick' && deepTabs.length > 0 && (
                 <button
@@ -2177,7 +2213,7 @@ export default function StudyPage() {
                     whiteSpace:   'nowrap' as const,
                   }}
                 >
-                  Add Deep Dive — +$1 🔒
+                  Add Deep Dive — +$3 🔒
                 </button>
               )}
             </div>
@@ -2202,7 +2238,7 @@ export default function StudyPage() {
         {studyState === 'deep' && deepTabs.length > 0 && (
           <div style={{ background: 'rgba(167,139,250,0.03)' }}>
             <div style={{ fontSize: 10, color: PURPLE, textTransform: 'uppercase' as const, letterSpacing: '1px', fontWeight: 600, padding: '6px 20px 0' }}>
-              $2 — Scholarly Depth ✓
+              $5 — Scholarly Depth ✓
             </div>
             <div style={S.tabRow}>
               {deepTabs.map(tabId => (
@@ -2246,7 +2282,7 @@ export default function StudyPage() {
           <div style={{ background: 'rgba(167,139,250,0.02)' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 20px 0' }}>
               <span style={{ fontSize: 10, color: 'rgba(167,139,250,0.5)', textTransform: 'uppercase' as const, letterSpacing: '1px', fontWeight: 600 }}>
-                $2 — Scholarly Depth 🔒
+                $5 — Scholarly Depth 🔒
               </span>
               {studyState === 'quick' && (
                 <button
@@ -2263,7 +2299,7 @@ export default function StudyPage() {
                     fontFamily:   SANS,
                   }}
                 >
-                  Unlock $2 →
+                  Unlock — +$3 →
                 </button>
               )}
             </div>
@@ -2287,7 +2323,7 @@ export default function StudyPage() {
         {/* Teaser row in quick state */}
         {studyState === 'quick' && deepTabs.length > 0 && (
           <div style={{ padding: '6px 20px 8px', background: 'rgba(167,139,250,0.02)', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' as const }}>
-            <span style={{ fontSize: 11, color: SLATE }}>Add $1 more for full scholarly depth:</span>
+            <span style={{ fontSize: 11, color: SLATE }}>Add $3 more for full scholarly depth:</span>
             {deepTabs.map(tabId => (
               <span key={tabId} style={{ fontSize: 11, color: 'rgba(167,139,250,0.5)', background: 'rgba(167,139,250,0.04)', border: '0.5px solid rgba(167,139,250,0.12)', borderRadius: 4, padding: '2px 8px' }}>{TAB_LABELS[tabId]}</span>
             ))}

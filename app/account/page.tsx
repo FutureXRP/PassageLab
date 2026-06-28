@@ -28,12 +28,12 @@ interface ProfileRow {
   monthly_spending_limit: number | null
 }
 
-interface BillingRow {
-  billing_period: string
-  quick_study_count: number
-  deep_study_count: number
-  total_amount: number
-  status: string
+interface ChargeRow {
+  passage: string
+  study_type: string
+  amount: number
+  promo: boolean
+  created_at: string
 }
 
 interface SavedStudyRow {
@@ -74,7 +74,7 @@ export default function AccountPage() {
   const [loading, setLoading]   = useState(true)
   const [userId, setUserId]     = useState<string | null>(null)
   const [profile, setProfile]   = useState<ProfileRow | null>(null)
-  const [billing, setBilling]   = useState<BillingRow[]>([])
+  const [charges, setCharges]   = useState<ChargeRow[]>([])
   const [savedStudies, setSavedStudies] = useState<SavedStudyRow[]>([])
   const [monthSpend, setMonthSpend] = useState(0)
   const [quickCount, setQuickCount] = useState(0)
@@ -95,7 +95,7 @@ export default function AccountPage() {
     if (!supabase) return
     const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString()
 
-    const [profileRes, usageRes, billingRes, studiesRes] = await Promise.all([
+    const [profileRes, usageRes, chargesRes, studiesRes] = await Promise.all([
       supabase.from('profiles')
         .select('*')   // tolerate databases missing newer columns
         .eq('id', uid).single(),
@@ -104,11 +104,12 @@ export default function AccountPage() {
         .eq('user_id', uid)
         .gte('created_at', monthStart)
         .gt('amount', 0),
-      supabase.from('billing_records')
-        .select('billing_period, quick_study_count, deep_study_count, total_amount, status')
+      supabase.from('usage_events')
+        .select('passage, study_type, amount, promo, created_at')
         .eq('user_id', uid)
-        .order('billing_period', { ascending: false })
-        .limit(12),
+        .or('amount.gt.0,promo.is.true')
+        .order('created_at', { ascending: false })
+        .limit(20),
       supabase.from('saved_studies')
         .select('id, passage, roles, updated_at')
         .eq('user_id', uid)
@@ -124,7 +125,7 @@ export default function AccountPage() {
     setMonthSpend(events.reduce((s, e) => s + Number(e.amount), 0))
     setQuickCount(events.filter(e => e.study_type === 'quick').length)
     setDeepCount(events.filter(e => e.study_type === 'deep').length)
-    setBilling(billingRes.data || [])
+    setCharges(chargesRes.data || [])
     setSavedStudies(studiesRes.data || [])
   }
 
@@ -253,7 +254,7 @@ export default function AccountPage() {
                 </div>
               </div>
               <div style={{ fontSize: 12, color: SLATE, marginTop: 14 }}>
-                Billed once at month end{profile?.card_last4 ? ` to ${profile.card_brand || 'card'} •••• ${profile.card_last4}` : ' — no card on file yet'}.
+                Charged at unlock{profile?.card_last4 ? ` to ${profile.card_brand || 'card'} •••• ${profile.card_last4}` : ' — no card on file yet'}.
               </div>
             </div>
 
@@ -309,21 +310,20 @@ export default function AccountPage() {
               ))}
             </div>
 
-            {/* Billing history */}
+            {/* Recent studies (charged at unlock) */}
             <div style={card}>
-              <div style={secTitle}>Billing History</div>
-              {billing.length === 0 && (
-                <div style={{ fontSize: 13, color: SLATE }}>No bills yet — your first bill arrives at the start of next month.</div>
+              <div style={secTitle}>Recent Studies</div>
+              {charges.length === 0 && (
+                <div style={{ fontSize: 13, color: SLATE }}>No studies yet — your first study is free.</div>
               )}
-              {billing.map(b => (
-                <div key={b.billing_period} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '0.5px solid rgba(255,255,255,0.06)' }}>
-                  <div>
-                    <div style={{ fontSize: 14, fontWeight: 600 }}>{b.billing_period}</div>
-                    <div style={{ fontSize: 12, color: SLATE }}>{b.quick_study_count} quick · {b.deep_study_count} deep</div>
+              {charges.map((c, i) => (
+                <div key={`${c.created_at}-${i}`} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '0.5px solid rgba(255,255,255,0.06)', gap: 12 }}>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: 14, fontWeight: 600, fontFamily: SERIF, fontStyle: 'italic' }}>{c.passage}</div>
+                    <div style={{ fontSize: 12, color: SLATE }}>{c.study_type === 'deep' ? 'Deep Dive' : 'Quick Study'} · {new Date(c.created_at).toLocaleDateString()}</div>
                   </div>
-                  <div style={{ textAlign: 'right' }}>
-                    <div style={{ fontSize: 14, fontWeight: 700, color: GOLD }}>${Number(b.total_amount).toFixed(2)}</div>
-                    <div style={{ fontSize: 11, color: b.status === 'paid' ? '#34D399' : b.status === 'failed' ? '#F87171' : SLATE }}>{b.status}</div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: c.promo ? '#34D399' : GOLD, flexShrink: 0 }}>
+                    {c.promo ? 'Free' : `$${Number(c.amount).toFixed(2)}`}
                   </div>
                 </div>
               ))}

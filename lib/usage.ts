@@ -1,10 +1,12 @@
 // PassageLab — usage.ts
 // Usage tracking, spending limits, unlock entitlements
 //
-// Billing model: each study unlock ($1 quick / $2 deep) is recorded by
-// /api/checkout as a usage_event with a dollar amount. Per-tab generation
-// events carry amount 0 (analytics only). The monthly cron in
-// /api/billing/charge sums unbilled amounts and charges the saved card.
+// Billing model: each study unlock ($2 quick / $5 deep) is charged to the
+// saved card immediately by /api/checkout and recorded as a usage_event
+// (billed = true). A user's first basic study is free (promo = true,
+// amount 0). Per-tab generation events carry amount 0 (analytics only).
+// The /api/billing/charge cron is retained but a no-op under this model —
+// no unbilled billable usage accrues for it to collect.
 
 import { createClient } from '@supabase/supabase-js'
 
@@ -17,18 +19,21 @@ const supabase = (supabaseUrl && supabaseKey)
 // ─── Pricing ───────────────────────────────────────────────────────────────
 
 export const PRICES = {
-  QUICK_STUDY: 1.00,
-  DEEP_DIVE:   2.00,
+  QUICK_STUDY: 2.00,
+  DEEP_DIVE:   5.00,
 } as const
 
 // Default monthly cap (USD) applied to any user who hasn't set their own limit.
-// Bounds API-cost exposure per account so one user can't run up an unbounded
-// bill before month-end collection. Users can raise/lower it on the account
-// page; set DEFAULT_MONTHLY_CAP=0 in the env to disable the default entirely.
-const DEFAULT_MONTHLY_CAP = Number(process.env.DEFAULT_MONTHLY_CAP) || 50
+// Under the pay-at-unlock model the customer is charged immediately, so the
+// platform no longer needs a default cap to bound pre-collection exposure —
+// blocking a willing payer would just lose a sale. Default is now 0 (no
+// platform cap; only a user's own self-set limit blocks). Set
+// DEFAULT_MONTHLY_CAP in the env to re-enable a platform-wide default.
+const DEFAULT_MONTHLY_CAP = Number(process.env.DEFAULT_MONTHLY_CAP) || 0
 
 // ─── Unlock entitlements ───────────────────────────────────────────────────
-// An unlock is a usage_event with a positive amount, written by /api/checkout.
+// An unlock is a usage_event written by /api/checkout — either a paid charge
+// (amount > 0) or the free first-study claim (promo = true, amount 0).
 // 'deep' covers everything; 'quick' covers only quick (Haiku) tabs.
 
 export interface UnlockStatus {
@@ -43,13 +48,14 @@ export async function getUnlockStatus(
   if (!supabase) return { quick: false, deep: false }
   try {
     // The client sends the identical passage string to /api/checkout and
-    // /api/tab, so an exact match is sufficient here
+    // /api/tab, so an exact match is sufficient here. A paid charge
+    // (amount > 0) or the free claim (promo) both count as an unlock.
     const { data } = await supabase
       .from('usage_events')
       .select('study_type')
       .eq('user_id', userId)
       .eq('passage', passage)
-      .gt('amount', 0)
+      .or('amount.gt.0,promo.is.true')
 
     const types = new Set((data || []).map(e => e.study_type))
     return {
@@ -58,6 +64,27 @@ export async function getUnlockStatus(
     }
   } catch {
     return { quick: false, deep: false }
+  }
+}
+
+// Has this account already claimed its one free basic study? The free claim is
+// recorded as a usage_event with promo = true, so a single such row anywhere
+// (any passage) means the per-account free study is used up. Fails closed
+// (returns true → no free study) on error, so an outage can't mint free studies.
+export async function hasClaimedFreeStudy(userId: string): Promise<boolean> {
+  if (!supabase) return true
+  try {
+    const { data, error } = await supabase
+      .from('usage_events')
+      .select('id')
+      .eq('user_id', userId)
+      .eq('promo', true)
+      .limit(1)
+    if (error) throw error
+    return (data?.length ?? 0) > 0
+  } catch (err) {
+    console.error('Free-study eligibility check failed:', err)
+    return true
   }
 }
 

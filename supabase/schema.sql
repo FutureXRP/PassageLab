@@ -54,6 +54,8 @@ create table if not exists public.usage_events (
   tab_ids            text[] not null default '{}',
   study_type         text not null check (study_type in ('quick', 'deep')),
   amount             numeric(10,2) not null default 0,
+  promo              boolean not null default false,   -- free first-study claim
+  stripe_payment_intent_id text,                       -- set on immediate paid charges
   cached             boolean not null default false,
   input_tokens       integer not null default 0,
   output_tokens      integer not null default 0,
@@ -71,6 +73,9 @@ create index if not exists usage_events_unbilled_idx
 -- Entitlement lookups in /api/tab and /api/checkout
 create index if not exists usage_events_user_passage_idx
   on public.usage_events (user_id, passage) where amount > 0;
+-- Free first-study eligibility (one promo row per account)
+create index if not exists usage_events_user_promo_idx
+  on public.usage_events (user_id) where promo = true;
 
 -- ─── Billing records ─────────────────────────────────────────────────────────
 -- One row per user per billing period, written by /api/billing/charge.
@@ -393,6 +398,8 @@ alter table public.profiles add column if not exists updated_at                t
 alter table public.usage_events add column if not exists roles              text[] not null default '{}';
 alter table public.usage_events add column if not exists tab_ids            text[] not null default '{}';
 alter table public.usage_events add column if not exists amount             numeric(10,2) not null default 0;
+alter table public.usage_events add column if not exists promo              boolean not null default false;
+alter table public.usage_events add column if not exists stripe_payment_intent_id text;
 alter table public.usage_events add column if not exists cached             boolean not null default false;
 alter table public.usage_events add column if not exists input_tokens       integer not null default 0;
 alter table public.usage_events add column if not exists output_tokens      integer not null default 0;

@@ -1,6 +1,10 @@
 // PassageLab — app/api/billing/charge/route.ts
-// Monthly billing job — sums unbilled usage per user and charges their saved card
-// Called by a cron job on the 1st of each month (set up in Vercel Cron)
+// LEGACY month-end billing job. Under the current pay-at-unlock model,
+// /api/checkout charges the saved card immediately and records each unlock as
+// billed = true, so this cron normally finds nothing to charge (a safe no-op).
+// It is retained as a safety net to sweep any unbilled, billable usage_events
+// (e.g. accruals from before the pay-at-unlock migration) at month start.
+// Sums unbilled usage per user and charges their saved card.
 
 import { NextRequest, NextResponse } from 'next/server'
 import Stripe from 'stripe'
