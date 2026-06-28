@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { useParams, useSearchParams } from 'next/navigation'
 import { getTabsForRoles, getTabModel, Role } from '@/lib/prompts'
+import { SAMPLE_BIBLE_TEXT, SAMPLE_QUICK_TABS, SAMPLE_DEEP_TABS, SAMPLE_TABS } from '@/lib/sample-study'
 import { createClient as createBrowserSupabase } from '@/lib/supabase/client'
 import { loadStripe } from '@stripe/stripe-js'
 import { Elements, CardElement, useStripe, useElements } from '@stripe/react-stripe-js'
@@ -1733,7 +1734,14 @@ export default function StudyPage() {
   const rolesParam   = searchParams.get('roles') || 'pastor'
   const roles        = rolesParam.split(',').filter(Boolean) as Role[]
 
-  const { quick: quickTabs, deep: deepTabs } = getTabsForRoles(roles)
+  // Sample mode (?sample=1): a pre-rendered example study, fully unlocked, with
+  // no API calls and no paywall — shows prospective users exactly what a real
+  // finished study looks like.
+  const isSample = searchParams.get('sample') === '1'
+
+  const tabsForRoles = getTabsForRoles(roles)
+  const quickTabs = isSample ? SAMPLE_QUICK_TABS : tabsForRoles.quick
+  const deepTabs  = isSample ? SAMPLE_DEEP_TABS  : tabsForRoles.deep
 
   // ── Study state ───────────────────────────────────────────────────────────
   // free     = Overview only (anonymous, no cost)
@@ -1742,6 +1750,7 @@ export default function StudyPage() {
   type StudyState = 'free' | 'quick' | 'deep'
 
   const [studyState, setStudyState] = useState<StudyState>(() => {
+    if (isSample) return 'deep'
     if (typeof window === 'undefined') return 'free'
     try {
       const key = `pl_state_${passage}_${rolesParam}`
@@ -1750,6 +1759,7 @@ export default function StudyPage() {
   })
 
   const [tabStates, setTabStates] = useState<Record<string, TabState>>(() => {
+    if (isSample) return SAMPLE_TABS as unknown as Record<string, TabState>
     if (typeof window === 'undefined') return {}
     try {
       const key = `pl_study_${passage}_${rolesParam}`
@@ -1766,7 +1776,7 @@ export default function StudyPage() {
     } catch { return {} }
   })
 
-  const [bibleText, setBibleText]       = useState<any>(null)
+  const [bibleText, setBibleText]       = useState<any>(isSample ? SAMPLE_BIBLE_TEXT : null)
   const [bibleVersion, setBibleVersion] = useState('kjv')
   const [activeTab, setActiveTab]       = useState('overview')
   const [currentlyGenerating, setCurrentlyGenerating] = useState<string | null>(null)
@@ -1793,9 +1803,9 @@ export default function StudyPage() {
     }
   }, [])
 
-  // Persist tab data and study state to localStorage
+  // Persist tab data and study state to localStorage (never for the sample)
   useEffect(() => {
-    if (typeof window === 'undefined') return
+    if (typeof window === 'undefined' || isSample) return
     try {
       localStorage.setItem(`pl_study_${passage}_${rolesParam}`, JSON.stringify(tabStates))
       localStorage.setItem(`pl_state_${passage}_${rolesParam}`, studyState)
@@ -1809,6 +1819,9 @@ export default function StudyPage() {
   useEffect(() => {
     if (hasInit.current) return
     hasInit.current = true
+
+    // Sample study is fully pre-rendered — never call the API
+    if (isSample) { setActiveTab('overview'); return }
 
     const anyDone = Object.values(tabStates).some(s => s.status === 'done')
     if (!anyDone) {
@@ -2343,6 +2356,18 @@ export default function StudyPage() {
 
       {/* Content */}
       <div className="screen-view" style={S.content}>
+
+        {/* Sample banner */}
+        {isSample && (
+          <div style={{ background: 'rgba(201,151,58,0.08)', border: `1px solid ${GOLD}55`, borderRadius: 10, padding: '14px 18px', marginBottom: 24, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' as const }}>
+            <div style={{ fontSize: 13, color: PARCHMENT, lineHeight: 1.6 }}>
+              <span style={{ color: GOLD, fontWeight: 700 }}>Sample study.</span> A real PassageLab result for {passage} — every tab unlocked so you can see exactly what you get. Your own studies generate live in seconds.
+            </div>
+            <Link href="/" style={{ flexShrink: 0, background: GOLD, color: INK, borderRadius: 8, padding: '9px 16px', fontSize: 13, fontWeight: 700, textDecoration: 'none', fontFamily: SANS }}>
+              Study your own passage →
+            </Link>
+          </div>
+        )}
 
         {/* Generating spinner */}
         {activeState?.status === 'generating' && (
