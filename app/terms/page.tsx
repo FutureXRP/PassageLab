@@ -51,7 +51,7 @@ export default function TermsPage() {
       <p>We may update these terms or modify the service; material changes will be announced on this page. You may close your account at any time; outstanding usage will be billed in the next cycle. We may suspend accounts that violate these terms.</p>
 
       <H>10. Contact</H>
-      <p>Questions about these terms: <a href="mailto:support@passagelab.app" style={{ color: '#C9973A' }}>support@passagelab.app</a></p>
+      <p>Questions about these terms: <a href="mailto:info@passagelab.app" style={{ color: '#C9973A' }}>info@passagelab.app</a></p>
     </div>
   )
 }

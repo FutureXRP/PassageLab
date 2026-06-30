@@ -45,7 +45,7 @@ export default function PrivacyPage() {
       <p>You may request a copy of your data, correct it, or delete it. EU/UK residents have rights under GDPR; California residents under CCPA. Contact us to exercise them.</p>
 
       <H>Contact</H>
-      <p><a href="mailto:privacy@passagelab.app" style={{ color: '#C9973A' }}>privacy@passagelab.app</a></p>
+      <p><a href="mailto:info@passagelab.app" style={{ color: '#C9973A' }}>info@passagelab.app</a></p>
     </div>
   )
 }
