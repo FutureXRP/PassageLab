@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useParams, useSearchParams } from 'next/navigation'
 import { getTabsForRoles, getTabModel, Role } from '@/lib/prompts'
 import { SAMPLE_BIBLE_TEXT, SAMPLE_QUICK_TABS, SAMPLE_DEEP_TABS, SAMPLE_TABS } from '@/lib/sample-study'
+import { LogoMark } from '@/components/logo-mark'
 import { createClient as createBrowserSupabase } from '@/lib/supabase/client'
 import { loadStripe } from '@stripe/stripe-js'
 import { Elements, CardElement, useStripe, useElements } from '@stripe/react-stripe-js'
@@ -2094,8 +2095,9 @@ export default function StudyPage() {
 
       {/* Nav */}
       <nav className="screen-view" style={S.nav}>
-        <Link href="/" style={{ ...S.logo, textDecoration: 'none' }} title="Back to home">
-          Passage<span style={{ color: GOLD }}>Lab</span>
+        <Link href="/" style={{ ...S.logo, textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 8 }} title="Back to home">
+          <LogoMark size={26} />
+          <span>Passage<span style={{ color: GOLD }}>Lab</span></span>
         </Link>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <span style={{ fontFamily: SERIF, fontSize: 14, fontStyle: 'italic' as const, color: PARCHMENT }}>{passage}</span>

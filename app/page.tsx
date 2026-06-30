@@ -3,6 +3,7 @@
 import { Suspense } from 'react'
 import { useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
+import { LogoMark } from '@/components/logo-mark'
 
 const SERIF  = "'Playfair Display', Georgia, serif"
 const SANS   = "'DM Sans', system-ui, sans-serif"
@@ -60,8 +61,11 @@ function HomeContent() {
 
       {/* Nav */}
       <nav style={{ padding: '0 28px', height: 52, display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-        <div style={{ fontFamily: SERIF, fontSize: 20, fontWeight: 700, color: PARCHMENT }}>
-          Passage<span style={{ color: GOLD }}>Lab</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <LogoMark size={30} />
+          <div style={{ fontFamily: SERIF, fontSize: 20, fontWeight: 700, color: PARCHMENT }}>
+            Passage<span style={{ color: GOLD }}>Lab</span>
+          </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
           <div style={{ fontSize: 12, color: SLATE }}>AI-powered biblical research for Bible teachers</div>
@@ -220,6 +224,7 @@ function HomeContent() {
       <footer style={{ padding: '20px 28px', borderTop: '1px solid rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' as const, gap: 10 }}>
         <div style={{ fontSize: 12, color: SLATE }}>© {new Date().getFullYear()} PassageLab</div>
         <div style={{ display: 'flex', gap: 18 }}>
+          <a href="mailto:info@passagelab.app" style={{ fontSize: 12, color: SLATE, textDecoration: 'none' }}>Contact</a>
           <a href="/terms" style={{ fontSize: 12, color: SLATE, textDecoration: 'none' }}>Terms</a>
           <a href="/privacy" style={{ fontSize: 12, color: SLATE, textDecoration: 'none' }}>Privacy</a>
         </div>

@@ -8,6 +8,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
+import { LogoMark } from '@/components/logo-mark'
 import { createClient as createBrowserSupabase } from '@/lib/supabase/client'
 
 const SERIF     = "'Playfair Display', Georgia, serif"
@@ -160,8 +161,9 @@ export default function AdminPage() {
   return (
     <div style={{ background: INK, minHeight: '100vh', color: PARCHMENT, fontFamily: SANS }}>
       <nav style={{ padding: '0 28px', height: 52, display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-        <Link href="/" style={{ fontFamily: SERIF, fontSize: 20, fontWeight: 700, color: PARCHMENT, textDecoration: 'none' }}>
-          Passage<span style={{ color: GOLD }}>Lab</span> <span style={{ fontSize: 12, color: SLATE }}>· Admin</span>
+        <Link href="/" style={{ display: 'flex', alignItems: 'center', gap: 8, fontFamily: SERIF, fontSize: 20, fontWeight: 700, color: PARCHMENT, textDecoration: 'none' }}>
+          <LogoMark size={26} />
+          <span>Passage<span style={{ color: GOLD }}>Lab</span> <span style={{ fontSize: 12, color: SLATE }}>· Admin</span></span>
         </Link>
         <Link href="/account" style={{ fontSize: 12, color: SLATE, textDecoration: 'none' }}>Account →</Link>
       </nav>
