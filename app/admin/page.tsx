@@ -285,7 +285,7 @@ export default function AdminPage() {
                     <div style={{ minWidth: 0 }}>
                       <div style={{ fontSize: 14, fontWeight: 600 }}>
                         <span style={{ fontFamily: SERIF, fontStyle: 'italic' }}>{c.passage}</span>
-                        <span style={{ color: SLATE, fontWeight: 400 }}> · {c.study_type === 'deep' ? 'Deep' : 'Quick'}</span>
+                        <span style={{ color: SLATE, fontWeight: 400 }}> · {c.study_type === 'academic' ? 'Academic' : c.study_type === 'deep' ? 'Deep' : 'Quick'}</span>
                         {c.coupon_code && <span style={{ color: PURPLE, fontWeight: 400 }}> · {c.coupon_code}</span>}
                       </div>
                       <div style={{ fontSize: 12, color: SLATE }}>{emailOf(c)} · {new Date(c.created_at).toLocaleString()}</div>

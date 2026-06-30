@@ -8,9 +8,12 @@ import {
   getTabModel,
   getTabTokens,
   isDeepTab,
+  isAcademicTab,
+  studyTypeForTab,
   getStudyPrice,
   SYSTEM_PROMPT,
 } from '@/lib/prompts'
+import { ACADEMIC_ENABLED } from '@/lib/flags'
 import { fetchPassageText } from '@/lib/bible-api'
 import {
   getCachedTab,
@@ -32,7 +35,9 @@ import { recordBookRecommendations, attachVerifiedLinks } from '@/lib/book-catal
 // Long Sonnet generations (Apologetics, Theology, Commentary) can exceed
 // 60s under load — give the function room, and cap the upstream call so
 // SDK retries can't blow through the budget
-export const maxDuration = 120
+// Academic (Opus) tabs run long; give the function room. Haiku/Sonnet finish
+// well within this regardless.
+export const maxDuration = 300
 
 // Prompt caching is GA — cached tokens cost 90% less than regular input tokens
 const anthropic = new Anthropic({
@@ -43,15 +48,17 @@ const anthropic = new Anthropic({
 
 const SONNET = 'claude-sonnet-4-6'
 const HAIKU  = 'claude-haiku-4-5-20251001'
+const OPUS   = 'claude-opus-4-8'
 
 // Cost per 1K tokens — cache_read is 90% cheaper than regular input
 const COSTS = {
+  opus:   { input: 0.005,   output: 0.025,   cache_write: 0.00625, cache_read: 0.0005  },
   sonnet: { input: 0.003,   output: 0.015,   cache_write: 0.00375, cache_read: 0.0003  },
   haiku:  { input: 0.00025, output: 0.00125, cache_write: 0.0003,  cache_read: 0.00003 },
 }
 
 function estimateCost(
-  model: 'sonnet' | 'haiku',
+  model: 'sonnet' | 'haiku' | 'opus',
   inputTokens: number,
   outputTokens: number,
   cacheReadTokens: number = 0,
@@ -77,11 +84,11 @@ export async function POST(req: NextRequest) {
   let passage = ''
   let roles: string[] = []
   let tabId = ''
-  let studyType: 'quick' | 'deep' = 'quick'
+  let studyType: 'quick' | 'deep' | 'academic' = 'quick'
 
   try {
     // ── Rate limit (per IP) ───────────────────────────────────────────────
-    if (!rateLimit(`tab:${clientIp(req.headers)}`, 30, 5 * 60_000)) {
+    if (!rateLimit(`tab:${clientIp(req.headers)}`, 80, 5 * 60_000)) {
       return NextResponse.json({
         error:   'rate_limited',
         message: 'Too many requests. Please wait a few minutes and try again.',
@@ -104,8 +111,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'At least one role is required' }, { status: 400 })
     }
 
-    studyType  = isDeepTab(tabId) ? 'deep' : 'quick'
+    studyType  = studyTypeForTab(tabId)
     const studyPrice = getStudyPrice([tabId])
+
+    // Academic tier is feature-flagged. When OFF, academic tabs don't exist:
+    // treat a request for one as an unknown tab so nothing about the tier leaks.
+    if (isAcademicTab(tabId) && !ACADEMIC_ENABLED) {
+      return NextResponse.json({ error: `Unknown tab: ${tabId}` }, { status: 400 })
+    }
 
     // ── Paywall enforcement (server-side) ─────────────────────────────────
     // Overview is free and anonymous. Every other tab requires a signed-in
@@ -123,13 +136,17 @@ export async function POST(req: NextRequest) {
         }, { status: 401 })
       }
       const unlocks = await getUnlockStatus(userId, passage)
-      const entitled = isDeepTab(tabId) ? unlocks.deep : unlocks.quick
+      const entitled = isAcademicTab(tabId)
+        ? unlocks.academic
+        : isDeepTab(tabId) ? unlocks.deep : unlocks.quick
       if (!entitled) {
         return NextResponse.json({
           error:   'payment_required',
-          message: isDeepTab(tabId)
-            ? 'Unlock the Deep Dive to generate this tab.'
-            : 'Unlock the Quick Study to generate this tab.',
+          message: isAcademicTab(tabId)
+            ? 'Unlock the Academic study to generate this tab.'
+            : isDeepTab(tabId)
+              ? 'Unlock the Deep Dive to generate this tab.'
+              : 'Unlock the Quick Study to generate this tab.',
         }, { status: 402 })
       }
     }
@@ -218,8 +235,10 @@ export async function POST(req: NextRequest) {
 
     // ── Model selection ───────────────────────────────────────────────────
     const modelKey  = getTabModel(tabId)
-    const model     = modelKey === 'sonnet' ? SONNET : HAIKU
+    const model     = modelKey === 'opus' ? OPUS : modelKey === 'sonnet' ? SONNET : HAIKU
     const maxTokens = getTabTokens(tabId)
+    // Opus generations are long; give the upstream call a bigger budget.
+    const callTimeout = modelKey === 'opus' ? 280_000 : 100_000
 
     // ── Bible text for caching ────────────────────────────────────────────
     // The KJV text is the primary passage reference injected into prompts
@@ -271,7 +290,7 @@ export async function POST(req: NextRequest) {
             ]
           }
         ],
-      })
+      }, { timeout: callTimeout })
 
       truncated = response.stop_reason === 'max_tokens'
 

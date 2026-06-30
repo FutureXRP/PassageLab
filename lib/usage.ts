@@ -21,6 +21,7 @@ const supabase = (supabaseUrl && supabaseKey)
 export const PRICES = {
   QUICK_STUDY: 2.00,
   DEEP_DIVE:   5.00,
+  ACADEMIC:    20.00,
 } as const
 
 // Default monthly cap (USD) applied to any user who hasn't set their own limit.
@@ -39,13 +40,14 @@ const DEFAULT_MONTHLY_CAP = Number(process.env.DEFAULT_MONTHLY_CAP) || 0
 export interface UnlockStatus {
   quick: boolean
   deep: boolean
+  academic: boolean
 }
 
 export async function getUnlockStatus(
   userId: string,
   passage: string
 ): Promise<UnlockStatus> {
-  if (!supabase) return { quick: false, deep: false }
+  if (!supabase) return { quick: false, deep: false, academic: false }
   try {
     // The client sends the identical passage string to /api/checkout and
     // /api/tab, so an exact match is sufficient here. A paid charge
@@ -60,12 +62,14 @@ export async function getUnlockStatus(
       .or('amount.gt.0,promo.is.true,coupon_code.not.is.null')
 
     const types = new Set((data || []).map(e => e.study_type))
+    // Tiers nest: an Academic unlock covers Deep + Quick; a Deep unlock covers Quick.
     return {
-      deep:  types.has('deep'),
-      quick: types.has('quick') || types.has('deep'),
+      academic: types.has('academic'),
+      deep:     types.has('deep')  || types.has('academic'),
+      quick:    types.has('quick') || types.has('deep') || types.has('academic'),
     }
   } catch {
-    return { quick: false, deep: false }
+    return { quick: false, deep: false, academic: false }
   }
 }
 
@@ -163,7 +167,7 @@ export async function recordUsageEvent(params: {
   passage: string
   roles: string[]
   tabIds: string[]
-  studyType: 'quick' | 'deep'
+  studyType: 'quick' | 'deep' | 'academic'
   amount: number
   cached: boolean
   inputTokens: number
@@ -203,7 +207,7 @@ export async function recordRenderFailure(params: {
   passage: string
   roles: string[]
   tabId: string
-  studyType: 'quick' | 'deep'
+  studyType: 'quick' | 'deep' | 'academic'
   error: string
 }): Promise<void> {
   if (!supabase) return

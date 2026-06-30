@@ -3,7 +3,8 @@
 import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { useParams, useSearchParams } from 'next/navigation'
-import { getTabsForRoles, getTabModel, Role } from '@/lib/prompts'
+import { getTabsForRoles, getTabModel, Role, ACADEMIC_TABS, ACADEMIC_LABELS } from '@/lib/prompts'
+import { ACADEMIC_ENABLED } from '@/lib/flags'
 import { SAMPLE_BIBLE_TEXT, SAMPLE_QUICK_TABS, SAMPLE_DEEP_TABS, SAMPLE_TABS } from '@/lib/sample-study'
 import { LogoMark } from '@/components/logo-mark'
 import { createClient as createBrowserSupabase } from '@/lib/supabase/client'
@@ -18,6 +19,7 @@ const PARCHMENT = '#F5F0E8'
 const SLATE     = '#8892A4'
 const INK       = '#0D1117'
 const PURPLE    = '#A78BFA'
+const ACADEMIC  = '#54C9A0'
 
 // ─── Supabase client ──────────────────────────────────────────────────────
 // Cookie-based (@supabase/ssr) so API routes can authenticate the session
@@ -57,6 +59,17 @@ const TAB_LABELS: Record<string, string> = {
   apologetics_deep:'Apologetics+',
   books:           'Book List',
   citations:       'Sources',
+  // Academic tier (Opus)
+  exegesis:        'Exegesis',
+  structure:       'Structure & Discourse',
+  digest:          'Commentary Digest',
+  question:        'State of the Question',
+  apparatus:       'Critical Apparatus',
+  parallels:       'Canonical Parallels',
+  reception:       'Reception History',
+  excursus:        'Excursuses',
+  bibliography:    'Bibliography',
+  research:        'Research Agenda',
 }
 
 // ─── Tab state types ──────────────────────────────────────────────────────
@@ -1100,6 +1113,57 @@ function SourceFooter({ tabId, cached }: { tabId: string; cached: boolean }) {
 
 // ─── Tab content router ────────────────────────────────────────────────────
 
+// ─── Academic tier renderer ────────────────────────────────────────────────
+// Every Academic (Opus) tab returns the same { academic: { lead, title,
+// subtitle, blocks[] } } schema, so this one component renders all of them.
+// Defensive against missing fields — a malformed block degrades gracefully.
+function AcademicDoc({ data }: { data: Record<string, unknown> }) {
+  const doc = ((data as any)?.academic ?? data) as {
+    lead?: string; title?: string; subtitle?: string
+    blocks?: Array<{
+      accent?: boolean; chip?: string; heading?: string
+      paragraphs?: string[]; bullets?: string[]; greek?: string
+      table?: { headers?: string[]; rows?: string[][] }
+    }>
+  }
+  const blocks = Array.isArray(doc?.blocks) ? doc.blocks : []
+  return (
+    <div>
+      {doc?.lead && <div style={{ fontSize: 11, letterSpacing: '1.5px', textTransform: 'uppercase', fontWeight: 700, color: ACADEMIC, marginBottom: 6 }}>{doc.lead}</div>}
+      {doc?.title && <div style={{ fontFamily: SERIF, fontSize: 25, fontWeight: 700, color: PARCHMENT, marginBottom: 6 }}>{doc.title}</div>}
+      {doc?.subtitle && <div style={{ fontSize: 14.5, color: SLATE, marginBottom: 22, lineHeight: 1.6, maxWidth: '72ch' }}>{doc.subtitle}</div>}
+      {blocks.map((b, i) => {
+        const accent = !!b?.accent
+        return (
+          <div key={i} style={{ background: 'rgba(255,255,255,0.03)', border: `1px solid ${accent ? 'rgba(84,201,160,0.22)' : 'rgba(255,255,255,0.08)'}`, borderRadius: 12, padding: '20px 22px', marginBottom: 16 }}>
+            {b?.chip && <div style={{ display: 'inline-block', fontSize: 12, fontWeight: 700, color: ACADEMIC, background: 'rgba(84,201,160,0.1)', border: '1px solid rgba(84,201,160,0.22)', borderRadius: 5, padding: '3px 9px', marginBottom: 12 }}>{b.chip}</div>}
+            {b?.heading && <div style={{ fontFamily: SERIF, fontSize: 18, fontWeight: 700, color: accent ? ACADEMIC : GOLD, marginBottom: 10 }}>{b.heading}</div>}
+            {b?.greek && <div style={{ fontFamily: SERIF, fontSize: 17, color: '#F1E9D8', background: 'rgba(255,255,255,0.022)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8, padding: '12px 14px', marginBottom: 12, lineHeight: 1.8 }}>{b.greek}</div>}
+            {(Array.isArray(b?.paragraphs) ? b.paragraphs : []).map((p, j) => <p key={j} style={{ margin: '0 0 12px', color: PARCHMENT, lineHeight: 1.72, fontSize: 15 }}>{p}</p>)}
+            {Array.isArray(b?.bullets) && b.bullets.length > 0 && (
+              <ul style={{ margin: '4px 0 8px', paddingLeft: 20 }}>
+                {b.bullets.map((li, j) => <li key={j} style={{ margin: '0 0 7px', color: PARCHMENT, lineHeight: 1.6, fontSize: 14.5 }}>{li}</li>)}
+              </ul>
+            )}
+            {b?.table && Array.isArray(b.table.rows) && b.table.rows.length > 0 && (
+              <table style={{ width: '100%', borderCollapse: 'collapse', margin: '6px 0', fontSize: 13.5 }}>
+                {Array.isArray(b.table.headers) && b.table.headers.length > 0 && (
+                  <thead><tr>{b.table.headers.map((h, j) => <th key={j} style={{ textAlign: 'left', padding: '8px 10px', borderBottom: '1px solid rgba(255,255,255,0.12)', color: SLATE, textTransform: 'uppercase', fontSize: 11, letterSpacing: '0.5px' }}>{h}</th>)}</tr></thead>
+                )}
+                <tbody>
+                  {b.table.rows.map((row, ri) => (
+                    <tr key={ri}>{(Array.isArray(row) ? row : []).map((cell, ci) => <td key={ci} style={{ textAlign: 'left', padding: '8px 10px', borderBottom: '1px solid rgba(255,255,255,0.08)', color: PARCHMENT, verticalAlign: 'top' }}>{cell}</td>)}</tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 function TabContent({ tabId, data, bibleText, bibleVersion, passage }: {
   tabId: string
   data:  Record<string, unknown> | null
@@ -1108,6 +1172,7 @@ function TabContent({ tabId, data, bibleText, bibleVersion, passage }: {
   passage?: string
 }) {
   if (!data) return null
+  if ((ACADEMIC_TABS as readonly string[]).includes(tabId)) return <AcademicDoc data={data} />
   switch (tabId) {
     case 'overview':        return <OverviewTab data={data} />
     case 'scripture':       return <ScriptureTab data={data} bibleText={bibleText} bibleVersion={bibleVersion} />
@@ -1217,11 +1282,12 @@ function CardForm({ color, clientSecret, ctaLabel, onSuccess, onError }: {
 
 // ─── Payment modal ─────────────────────────────────────────────────────────
 
-function PaymentModal({ tier, passage, roles, alreadyPaidQuick, onClose, onSuccess }: {
-  tier:              'quick' | 'deep'
+function PaymentModal({ tier, passage, roles, alreadyPaidQuick, alreadyPaidDeep, onClose, onSuccess }: {
+  tier:              'quick' | 'deep' | 'academic'
   passage:           string
   roles:             string[]
   alreadyPaidQuick?: boolean
+  alreadyPaidDeep?:  boolean
   onClose:           () => void
   onSuccess:         () => void
 }) {
@@ -1239,16 +1305,24 @@ function PaymentModal({ tier, passage, roles, alreadyPaidQuick, onClose, onSucce
   const [error, setError]       = useState('')
   const [setupClientSecret, setSetupClientSecret] = useState<string | null>(null)
 
-  const isDeep = tier === 'deep'
-  const color  = isDeep ? PURPLE : GOLD
+  const isDeep     = tier === 'deep'
+  const isAcademic = tier === 'academic'
+  const color  = isAcademic ? ACADEMIC : isDeep ? PURPLE : GOLD
   // isFree: confirmed free (logged in, hasn't used the free study, basic tier).
   // pitchFree: also pitch "free" on the pre-auth info step, which only logged-out
   // users ever see — most are new, so lead with the free offer.
-  const isFree    = !isDeep && freeEligible
-  const pitchFree = !isDeep && (freeEligible || !userId)
-  const price  = isFree ? 'Free' : isDeep ? (alreadyPaidQuick ? '+$3' : '$5') : '$2'
-  const label  = isDeep ? 'Deep Dive' : 'Quick Study'
-  const tabs   = isDeep
+  // The free study only ever applies to the basic (Quick) tier.
+  const isFree    = !isDeep && !isAcademic && freeEligible
+  const pitchFree = !isDeep && !isAcademic && (freeEligible || !userId)
+  const price  = isAcademic
+    ? (alreadyPaidDeep ? '+$15' : alreadyPaidQuick ? '+$18' : '$20')
+    : isFree ? 'Free' : isDeep ? (alreadyPaidQuick ? '+$3' : '$5') : '$2'
+  const label  = isAcademic ? 'Academic Study' : isDeep ? 'Deep Dive' : 'Quick Study'
+  const tabs   = isAcademic
+    ? ['Exegesis', 'Structure & Discourse', 'Commentary Digest', 'State of the Question',
+       'Critical Apparatus', 'Canonical Parallels', 'Reception History', 'Excursuses',
+       'Annotated Bibliography', 'Research Agenda', '+ everything in the Deep Dive']
+    : isDeep
     ? (alreadyPaidQuick
         ? ['Language', 'Hermeneutics', 'Christ', 'Apologetics', 'Interpretive Conflicts', 'Commentary', 'Church Fathers', 'Archaeology']
         : ['Scripture', 'Historical', 'Illustrations', 'Outline', 'Leadership', 'Books',
@@ -1456,7 +1530,9 @@ function PaymentModal({ tier, passage, roles, alreadyPaidQuick, onClose, onSucce
               Unlock {label}
             </div>
             <div style={{ fontSize: 14, color: SLATE, marginBottom: 24, lineHeight: 1.6 }}>
-              {isDeep
+              {isAcademic
+                ? 'Everything in the Deep Dive, plus a doctoral-grade research apparatus — clause-by-clause exegesis, a textual apparatus, reception history, an annotated bibliography, and more.'
+                : isDeep
                 ? 'All tabs included — practical and scholarly. The most you\'ll ever pay for one study.'
                 : 'Practical study tabs for sermon and lesson prep.'
               } {pitchFree
@@ -1626,20 +1702,21 @@ function PaymentModal({ tier, passage, roles, alreadyPaidQuick, onClose, onSucce
   )
 }
 
-function TabButton({ tabId, status, isDeep, isActive, onClick, cached, locked }: {
+function TabButton({ tabId, status, isDeep, isAcademic, isActive, onClick, cached, locked }: {
   tabId:    string
   status:   TabStatus
   isDeep:   boolean
+  isAcademic?: boolean
   isActive: boolean
   onClick:  () => void
   cached:   boolean
   locked?:  boolean
 }) {
-  const activeColor = isDeep ? PURPLE : GOLD
+  const activeColor = isAcademic ? ACADEMIC : isDeep ? PURPLE : GOLD
   const color = locked
     ? 'rgba(136,146,164,0.4)'
     : isActive ? activeColor
-    : status === 'done' ? (isDeep ? '#8B7CF8' : '#B8892A')
+    : status === 'done' ? (isAcademic ? '#46B391' : isDeep ? '#8B7CF8' : '#B8892A')
     : SLATE
 
   return (
@@ -1663,7 +1740,7 @@ function TabButton({ tabId, status, isDeep, isActive, onClick, cached, locked }:
         opacity:       status === 'generating' ? 0.7 : 1,
       }}
     >
-      {isDeep && !locked && <span style={{ width: 5, height: 5, borderRadius: '50%', background: isActive ? PURPLE : '#6B7A9F', flexShrink: 0, display: 'inline-block' }} />}
+      {(isDeep || isAcademic) && !locked && <span style={{ width: 5, height: 5, borderRadius: '50%', background: isActive ? activeColor : (isAcademic ? '#3FA98C' : '#6B7A9F'), flexShrink: 0, display: 'inline-block' }} />}
       {status === 'generating' && <span style={{ width: 10, height: 10, border: `2px solid ${activeColor}`, borderTopColor: 'transparent', borderRadius: '50%', display: 'inline-block', animation: 'spin 0.8s linear infinite' }} />}
       {status === 'done' && cached && <span title="Served from cache" style={{ fontSize: 9, color: activeColor }}>⚡</span>}
       {status === 'done' && !cached && <span style={{ fontSize: 10, color: activeColor }}>✓</span>}
@@ -1743,12 +1820,15 @@ export default function StudyPage() {
   const tabsForRoles = getTabsForRoles(roles)
   const quickTabs = isSample ? SAMPLE_QUICK_TABS : tabsForRoles.quick
   const deepTabs  = isSample ? SAMPLE_DEEP_TABS  : tabsForRoles.deep
+  // Academic (Opus) tabs only surface when the feature flag is on (never in the
+  // sample). When off, this is [] and the entire Academic tier is invisible.
+  const academicTabs = (ACADEMIC_ENABLED && !isSample) ? tabsForRoles.academic : []
 
   // ── Study state ───────────────────────────────────────────────────────────
   // free     = Overview only (anonymous, no cost)
   // quick    = All $1 Haiku tabs unlocked
   // deep     = All $2 Sonnet tabs unlocked
-  type StudyState = 'free' | 'quick' | 'deep'
+  type StudyState = 'free' | 'quick' | 'deep' | 'academic'
 
   const [studyState, setStudyState] = useState<StudyState>(() => {
     if (isSample) return 'deep'
@@ -1781,7 +1861,7 @@ export default function StudyPage() {
   const [bibleVersion, setBibleVersion] = useState('kjv')
   const [activeTab, setActiveTab]       = useState('overview')
   const [currentlyGenerating, setCurrentlyGenerating] = useState<string | null>(null)
-  const [modal, setModal]               = useState<'quick' | 'deep' | null>(null)
+  const [modal, setModal]               = useState<'quick' | 'deep' | 'academic' | null>(null)
   const [saveState, setSaveState]       = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const generationQueue                  = useRef<string[]>([])
   const isProcessingQueue                = useRef(false)
@@ -1792,7 +1872,7 @@ export default function StudyPage() {
   // Handle Stripe return — auto-unlock if payment succeeded
   useEffect(() => {
     const payment  = searchParams.get('payment')
-    const unlocked = searchParams.get('unlocked') as 'quick' | 'deep' | null
+    const unlocked = searchParams.get('unlocked') as 'quick' | 'deep' | 'academic' | null
     if (payment === 'success' && unlocked) {
       handlePaymentSuccess(unlocked)
       // Clean up URL params without reloading
@@ -1937,8 +2017,18 @@ export default function StudyPage() {
     setModal('deep')
   }
 
-  function handlePaymentSuccess(tier: 'quick' | 'deep') {
+  function handlePaymentSuccess(tier: 'quick' | 'deep' | 'academic') {
     setModal(null)
+    if (tier === 'academic') {
+      // Academic includes everything. Per spec, a paid Academic study eagerly
+      // generates EVERY tab — quick, deep, and the academic research apparatus.
+      setStudyState('academic')
+      ;[...quickTabs, ...deepTabs, ...academicTabs].forEach(tabId => {
+        if (!tabStates[tabId] || tabStates[tabId].status !== 'done') queueTab(tabId)
+      })
+      setActiveTab(academicTabs[0] || quickTabs.find(t => t !== 'overview') || 'overview')
+      return
+    }
     if (tier === 'quick') {
       setStudyState('quick')
       quickTabs.forEach(tabId => {
@@ -1986,7 +2076,8 @@ export default function StudyPage() {
     // Abort if the request outlives the API route's 120s budget —
     // surfaces as a 504-style timeout message instead of hanging forever
     const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), 150_000)
+    // Academic (Opus) tabs run long — give them a much larger client timeout.
+    const timeout = setTimeout(() => controller.abort(), academicTabs.includes(tabId) ? 290_000 : 150_000)
 
     try {
       const res = await fetch('/api/tab', {
@@ -2010,7 +2101,7 @@ export default function StudyPage() {
             [tabId]: { status: 'idle', data: null, cached: false }
           }))
           setStudyState('free')
-          setModal(deepTabs.includes(tabId) ? 'deep' : 'quick')
+          setModal(academicTabs.includes(tabId) ? 'academic' : deepTabs.includes(tabId) ? 'deep' : 'quick')
           return
         }
         setTabStates(prev => ({
@@ -2045,8 +2136,7 @@ export default function StudyPage() {
 
   function handleTabClick(tabId: string, locked?: boolean) {
     if (locked) {
-      const isDeepTab = deepTabs.includes(tabId)
-      setModal(isDeepTab ? 'deep' : 'quick')
+      setModal(academicTabs.includes(tabId) ? 'academic' : deepTabs.includes(tabId) ? 'deep' : 'quick')
       return
     }
     setActiveTab(tabId)
@@ -2061,7 +2151,10 @@ export default function StudyPage() {
   const doneCount    = Object.values(tabStates).filter(s => s.status === 'done').length
   const isGenerating = currentlyGenerating !== null
   const quickLocked  = studyState === 'free'
-  const deepLocked   = studyState !== 'deep'
+  // Deep tabs are unlocked by a Deep OR an Academic study (tiers nest).
+  const deepLocked   = studyState !== 'deep' && studyState !== 'academic'
+  const academicLocked   = studyState !== 'academic'
+  const isAcademicActive = academicTabs.includes(activeTab)
 
   return (
     <div style={S.page}>
@@ -2087,7 +2180,8 @@ export default function StudyPage() {
           tier={modal}
           passage={passage}
           roles={roles}
-          alreadyPaidQuick={modal === 'deep' && studyState === 'quick'}
+          alreadyPaidQuick={(modal === 'deep' || modal === 'academic') && studyState === 'quick'}
+          alreadyPaidDeep={modal === 'academic' && studyState === 'deep'}
           onClose={() => setModal(null)}
           onSuccess={() => handlePaymentSuccess(modal)}
         />
@@ -2190,6 +2284,25 @@ export default function StudyPage() {
                   }}
                 >
                   Deep Dive — $5 🔒
+                </button>
+              )}
+              {academicTabs.length > 0 && (
+                <button
+                  onClick={() => setModal('academic')}
+                  style={{
+                    background:   ACADEMIC,
+                    color:        INK,
+                    border:       'none',
+                    borderRadius: 6,
+                    padding:      '7px 16px',
+                    fontSize:     13,
+                    fontWeight:   700,
+                    cursor:       'pointer',
+                    fontFamily:   SANS,
+                    whiteSpace:   'nowrap' as const,
+                  }}
+                >
+                  Academic — $20 🔒
                 </button>
               )}
             </div>
@@ -2354,6 +2467,64 @@ export default function StudyPage() {
             ))}
           </div>
         )}
+
+        {/* Academic row (unlocked) */}
+        {studyState === 'academic' && academicTabs.length > 0 && (
+          <div style={{ background: 'rgba(84,201,160,0.04)' }}>
+            <div style={{ fontSize: 10, color: ACADEMIC, textTransform: 'uppercase' as const, letterSpacing: '1px', fontWeight: 600, padding: '6px 20px 0' }}>
+              $20 — Academic ✓
+            </div>
+            <div style={S.tabRow}>
+              {academicTabs.map(tabId => (
+                <TabButton
+                  key={tabId}
+                  tabId={tabId}
+                  status={tabStates[tabId]?.status || 'idle'}
+                  isDeep={false}
+                  isAcademic={true}
+                  isActive={activeTab === tabId}
+                  cached={tabStates[tabId]?.cached || false}
+                  locked={false}
+                  onClick={() => handleTabClick(tabId)}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Academic row (locked teaser + upsell) */}
+        {academicLocked && academicTabs.length > 0 && (
+          <div style={{ background: 'rgba(84,201,160,0.02)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 20px 0' }}>
+              <span style={{ fontSize: 10, color: 'rgba(84,201,160,0.6)', textTransform: 'uppercase' as const, letterSpacing: '1px', fontWeight: 600 }}>
+                $20 — Academic 🔒
+              </span>
+              {(studyState === 'quick' || studyState === 'deep') && (
+                <button
+                  onClick={() => setModal('academic')}
+                  style={{ background: 'rgba(84,201,160,0.1)', color: ACADEMIC, border: '1px solid rgba(84,201,160,0.3)', borderRadius: 6, padding: '4px 14px', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: SANS }}
+                >
+                  {studyState === 'deep' ? 'Unlock — +$15 →' : 'Unlock — +$18 →'}
+                </button>
+              )}
+            </div>
+            <div style={S.tabRow}>
+              {academicTabs.map(tabId => (
+                <TabButton
+                  key={tabId}
+                  tabId={tabId}
+                  status="idle"
+                  isDeep={false}
+                  isAcademic={true}
+                  isActive={false}
+                  cached={false}
+                  locked={true}
+                  onClick={() => handleTabClick(tabId, true)}
+                />
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Content */}
@@ -2447,7 +2618,7 @@ export default function StudyPage() {
           AI-generated study content (Claude, Anthropic). Scripture from public domain translations
           (KJV, WEB, ASV, YLT). Verify citations and details before academic or published use.
         </div>
-        {[...quickTabs, ...deepTabs]
+        {[...quickTabs, ...deepTabs, ...academicTabs]
           .filter(tabId => tabStates[tabId]?.status === 'done' && tabStates[tabId]?.data)
           .map(tabId => (
             <div key={tabId} className="print-tab" style={{ marginBottom: 32 }}>

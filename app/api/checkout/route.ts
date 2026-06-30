@@ -17,6 +17,7 @@ import {
   checkSpendingLimit,
   PRICES,
 } from '@/lib/usage'
+import { ACADEMIC_ENABLED } from '@/lib/flags'
 
 const stripe = process.env.STRIPE_SECRET_KEY
   ? new Stripe(process.env.STRIPE_SECRET_KEY)
@@ -54,11 +55,16 @@ export async function POST(req: NextRequest) {
 
     const { tier, passage, roles, couponCode } = await req.json()
 
-    if (!tier || !passage || (tier !== 'quick' && tier !== 'deep')) {
+    // 'academic' is only a valid tier while the feature flag is on — otherwise
+    // it's rejected exactly as an unknown tier would be.
+    const validTier =
+      tier === 'quick' || tier === 'deep' || (tier === 'academic' && ACADEMIC_ENABLED)
+    if (!validTier || !passage) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
     }
 
-    const studyType: 'quick' | 'deep' = tier === 'deep' ? 'deep' : 'quick'
+    const studyType: 'quick' | 'deep' | 'academic' =
+      tier === 'academic' ? 'academic' : tier === 'deep' ? 'deep' : 'quick'
     const rolesArr = Array.isArray(roles)
       ? roles
       : typeof roles === 'string' ? roles.split(',') : []
@@ -80,7 +86,11 @@ export async function POST(req: NextRequest) {
     // Idempotency: already unlocked at this tier (or deep covers quick) → no-op.
     // Counts both paid charges and the free claim (see getUnlockStatus).
     const unlocks = await getUnlockStatus(user.id, passage)
-    if ((tier === 'quick' && unlocks.quick) || (tier === 'deep' && unlocks.deep)) {
+    if (
+      (tier === 'quick' && unlocks.quick) ||
+      (tier === 'deep' && unlocks.deep) ||
+      (tier === 'academic' && unlocks.academic)
+    ) {
       return NextResponse.json({ success: true, amount: 0, alreadyUnlocked: true })
     }
 
@@ -107,9 +117,19 @@ export async function POST(req: NextRequest) {
 
     // ── Paid unlock ────────────────────────────────────────────────────────
     // Upgrade pricing: quick → deep costs the difference, not the full deep price.
-    const baseAmount = tier === 'deep'
-      ? (unlocks.quick ? PRICES.DEEP_DIVE - PRICES.QUICK_STUDY : PRICES.DEEP_DIVE)
-      : PRICES.QUICK_STUDY
+    let baseAmount: number
+    if (tier === 'academic') {
+      // Upgrade pricing: pay only the difference from whatever is already unlocked
+      baseAmount = unlocks.deep
+        ? PRICES.ACADEMIC - PRICES.DEEP_DIVE
+        : unlocks.quick
+          ? PRICES.ACADEMIC - PRICES.QUICK_STUDY
+          : PRICES.ACADEMIC
+    } else if (tier === 'deep') {
+      baseAmount = unlocks.quick ? PRICES.DEEP_DIVE - PRICES.QUICK_STUDY : PRICES.DEEP_DIVE
+    } else {
+      baseAmount = PRICES.QUICK_STUDY
+    }
 
     // Apply a coupon if supplied — validates active / not expired / under cap.
     // An invalid code is rejected so the user can correct or remove it.
@@ -187,7 +207,7 @@ export async function POST(req: NextRequest) {
         payment_method: profile.stripe_payment_method_id,
         off_session:    true,
         confirm:        true,
-        description:    `PassageLab ${studyType === 'deep' ? 'Deep Dive' : 'Quick Study'} — ${passage}`,
+        description:    `PassageLab ${studyType === 'academic' ? 'Academic Study' : studyType === 'deep' ? 'Deep Dive' : 'Quick Study'} — ${passage}`,
         metadata: {
           user_id:    user.id,
           passage,

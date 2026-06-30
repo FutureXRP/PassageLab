@@ -52,7 +52,7 @@ const TAB_ORDER = [
   'commentary','fathers','archaeology',
 ]
 
-export function getTabsForRoles(roles: Role[]): { quick: string[], deep: string[] } {
+export function getTabsForRoles(roles: Role[]): { quick: string[], deep: string[], academic: string[] } {
   const allSet = new Set<string>()
   roles.forEach(role => {
     ROLE_TABS[role]?.forEach(t => allSet.add(t))
@@ -62,17 +62,32 @@ export function getTabsForRoles(roles: Role[]): { quick: string[], deep: string[
   // scholar/student needs regardless of role. Haiku, so it stays in the $1 tier.
   allSet.add('citations')
   const all = TAB_ORDER.filter(t => allSet.has(t))
-  // Split by model — Haiku = $1 quick, Sonnet = $2 deep
+  // Split by model — Haiku = quick, Sonnet = deep
   const quick = all.filter(t => (TAB_MODELS[t] || 'haiku') === 'haiku')
   const deep  = all.filter(t => (TAB_MODELS[t] || 'haiku') === 'sonnet')
-  return { quick, deep }
+  // Academic (Opus) tabs are universal — the same research apparatus regardless
+  // of role. The study page only surfaces them when the Academic tier is
+  // enabled (feature flag) AND unlocked.
+  const academic = [...ACADEMIC_TABS]
+  return { quick, deep, academic }
 }
 
 // ─── Model routing ─────────────────────────────────────────────────────────
 // THIS IS THE PRICING RULE: Haiku = $1 tier, Sonnet = $2 tier
 // No exceptions — model determines price, always
 
-export const TAB_MODELS: Record<string, 'sonnet' | 'haiku'> = {
+export const TAB_MODELS: Record<string, 'sonnet' | 'haiku' | 'opus'> = {
+  // Opus — Academic tier (doctoral-grade research apparatus)
+  exegesis:     'opus',
+  structure:    'opus',
+  digest:       'opus',
+  question:     'opus',
+  apparatus:    'opus',
+  parallels:    'opus',
+  reception:    'opus',
+  excursus:     'opus',
+  bibliography: 'opus',
+  research:     'opus',
   // Sonnet — $2 tier (theological precision, scholarly depth)
   language:     'sonnet',
   hermeneutics: 'sonnet',
@@ -131,6 +146,17 @@ export const TAB_TOKENS: Record<string, number> = {
   // Sources page is intentionally large — a robust bibliography (25-30 works
   // across categories, each with multiple citation styles). Haiku, so cheap.
   citations:       5000,
+  // Academic tier (Opus) — long-form; the tab route gives Opus a larger time budget
+  exegesis:        6000,
+  structure:       5000,
+  digest:          6000,
+  question:        5000,
+  apparatus:       4500,
+  parallels:       5000,
+  reception:       5500,
+  excursus:        5500,
+  bibliography:    6000,
+  research:        5500,
 }
 
 // ─── Bible text injection ──────────────────────────────────────────────────
@@ -149,6 +175,62 @@ function passageBlock(passage: string, bibleText: Record<string, string>): strin
 export const SYSTEM_PROMPT = `You are PassageLab, a world-class biblical research platform. You combine the depth of a seminary professor, the pastoral instincts of an experienced preacher, and the precision of a biblical scholar. Return ONLY raw JSON. No markdown. No backticks. No explanation before or after. Start with { and end with }.`
 
 // ─── Tab prompts ───────────────────────────────────────────────────────────
+
+// ─── Academic tier (Opus) ───────────────────────────────────────────────────
+// The Academic tier adds a set of doctoral-grade research tabs on top of the
+// Deep Dive. They run on Opus and all share ONE output schema so a single
+// renderer (AcademicDoc in the study page) can display every one of them.
+// Universal — available for every role once the Academic study is unlocked.
+export const ACADEMIC_TABS = [
+  'exegesis', 'structure', 'digest', 'question', 'apparatus',
+  'parallels', 'reception', 'excursus', 'bibliography', 'research',
+] as const
+
+export const ACADEMIC_LABELS: Record<string, string> = {
+  exegesis:     'Exegesis',
+  structure:    'Structure & Discourse',
+  digest:       'Commentary Digest',
+  question:     'State of the Question',
+  apparatus:    'Critical Apparatus',
+  parallels:    'Canonical Parallels',
+  reception:    'Reception History',
+  excursus:     'Excursuses',
+  bibliography: 'Annotated Bibliography',
+  research:     'Research Agenda',
+}
+
+// Shared builder: every academic tab returns the SAME JSON shape (a list of
+// "blocks" the AcademicDoc renderer draws as cards). Only the content spec
+// differs per tab. The hard rules (real sources only, engage the languages,
+// be specific to THIS passage) are what keep the output doctoral rather than
+// generic — and protect against fabricated citations.
+function academicPrompt(
+  p: string,
+  b: Record<string, string>,
+  label: string,
+  spec: string
+): string {
+  return `${passageBlock(p, b)}You are a doctoral-level biblical scholar writing for a master's/PhD audience. Produce a rigorous, exhaustive treatment for the "${label}" section of an academic study of this passage.
+
+${spec}
+
+Requirements:
+- Be specific to THIS passage — never generic. Engage the Greek/Hebrew where relevant (give the original script AND a transliteration).
+- Name real scholars, commentaries, journals, and works. NEVER invent citations, ISBNs, manuscript sigla, or page numbers; if you are not certain of a detail, omit it or hedge ("verify before citing"). Accuracy outranks volume.
+- Represent contested positions fairly and at their strongest; distinguish what the text asserts from what later systems derived.
+- Be substantial: produce 7-12 content-rich blocks.
+
+Return ONLY raw JSON of EXACTLY this shape (no markdown, no backticks):
+{"academic":{
+  "lead":"ACADEMIC · ${label}",
+  "title":"<a short title for this section>",
+  "subtitle":"<1-2 sentence orientation>",
+  "blocks":[
+    {"accent":true,"chip":"<short tag, e.g. a verse ref, or empty string>","heading":"<card heading>","paragraphs":["<full paragraph>","<another>"],"bullets":["<point>","<point>"],"greek":"<an optional Greek/Hebrew phrase, or empty string>","table":{"headers":["<col>","<col>"],"rows":[["<cell>","<cell>"]]}}
+  ]
+}}
+Rules for blocks: every block MUST have a non-empty "heading" and at least one paragraph. Set "accent" true for the 2-3 most important blocks, false otherwise. Include "bullets", "greek", or "table" ONLY when they genuinely add value — otherwise omit those keys (or use empty values). Do not wrap the JSON in anything.`
+}
 
 const TAB_PROMPTS: Record<string, (passage: string, bibleText: Record<string, string>) => string> = {
 
@@ -562,6 +644,37 @@ Include a note for every verse or verse group in the passage.`,
   }]
 }}
 Provide 8-10 commentaries, 8-10 background_works (monographs and major studies), 3-4 lexicons/reference works, 3-4 journal_searches, and 5-6 free_online_resources. Use only real works.`,
+
+  // ── Academic tier (Opus) — all share the academicPrompt schema ────────────
+  exegesis: (p, b) => academicPrompt(p, b, 'Exegesis',
+    'Provide a clause-by-clause exegetical commentary covering EVERY verse of the passage in order. Use one or more blocks per verse or verse-group, each "chip"-tagged with the reference (e.g. "v. 12"). For each: the Greek text decisions, syntax, lexical cruxes, the interpretive options at any disputed point (with proponents), and what is theologically at stake. End with a block summarizing the exegetical decisions adopted vs. the chief alternatives.'),
+
+  structure: (p, b) => academicPrompt(p, b, 'Structure & Discourse',
+    'Analyze the literary structure and discourse flow: the macro-movement and any anacoluthon/inclusio/chiasm, a clause-flow outline (which clauses ground, qualify, or conclude others), the chain of conjunctions and what each does, the rhetorical forms in play (e.g. synkrisis, a-fortiori/qal wahomer, antithesis, diatribe), and how the passage functions within its larger argument/book context.'),
+
+  digest: (p, b) => academicPrompt(p, b, 'Commentary Digest',
+    'Digest what the major critical commentators say, verse-group by verse-group. For each section of the passage, give a block summarizing the positions of several standard commentators (e.g. for NT: Cranfield, Dunn, Moo, Fitzmyer, Schreiner, Käsemann, Wright, Jewett, Byrne — choose those who actually treat this passage), each in their characteristic terms. End with a "convergence and divergence" block (a table is ideal) showing where they agree and where they split.'),
+
+  question: (p, b) => academicPrompt(p, b, 'State of the Question',
+    'Map the current scholarly debate: the central interpretive question, then the major "fronts" of dispute — each as a block naming the positions, their leading proponents, and the state of play. Cover lexical/grammatical cruxes, theological disputes, and methodological/paradigm differences as relevant. End with a block on the genuine openings a fresh study could exploit.'),
+
+  apparatus: (p, b) => academicPrompt(p, b, 'Critical Apparatus',
+    'Provide a text-critical treatment: identify the genuinely significant variants in the passage (verse by verse), give the witnesses in summary form, weigh internal and external evidence, and state a reasoned verdict for each, noting the theological stakes. Flag where the passage is textually stable. Reference NA28/UBS5 and Metzger\'s Textual Commentary. NEVER invent manuscript sigla or readings — if a verse has no significant variant, say so.'),
+
+  parallels: (p, b) => academicPrompt(p, b, 'Canonical Parallels',
+    'Trace the passage across the canon: its OT roots and scriptural substrate; the closest NT/canonical parallels (with a comparison table where useful); its outworking in the surrounding context; and the wider biblical-theological themes it participates in. For each parallel, explain both the similarity and the significant difference.'),
+
+  reception: (p, b) => academicPrompt(p, b, 'Reception History',
+    'Trace the history of interpretation from the early church to the present, era by era (patristic, medieval, Reformation, post-Reformation, modern, contemporary). For each, name the key figures and what they contributed or disputed, and note any decisive turning points (e.g. translation decisions, conciliar definitions, paradigm shifts). Summarize/paraphrase positions; do not fabricate quotations.'),
+
+  excursus: (p, b) => academicPrompt(p, b, 'Excursuses',
+    'Treat the 4-6 hardest cruxes of the passage as full mini-essays (one block each, "accent" true). For each: state the problem, survey the live options at their strongest with proponents, and give a reasoned judgment with its limits. Choose the cruxes that genuinely matter for THIS passage (lexical, theological, historical, or methodological).'),
+
+  bibliography: (p, b) => academicPrompt(p, b, 'Annotated Bibliography',
+    'Build a graduate research bibliography, organized by category (major critical commentaries; monographs & key articles; primary background sources; reference works & tools; historical/reception sources). Use blocks per category. For each entry give author, title, series/publisher, year, and a 1-2 sentence annotation of its argument/stance. Use ONLY real works; add a block reminding the reader to verify editions/pages before citing.'),
+
+  research: (p, b) => academicPrompt(p, b, 'Research Agenda',
+    'Turn the passage into research directions for a thesis or paper: 4-6 defensible thesis topics (each a block) with the driving question, the method it requires, and the counter-arguments to pre-empt; a worked sample prospectus (title, thesis, outline, anticipated objections); method notes; and the journals + databases + search strings to target. Also include a brief set of comprehension and viva-style examination questions with model answers.'),
 }
 
 // ─── Public API ────────────────────────────────────────────────────────────
@@ -576,7 +689,7 @@ export function buildTabPrompt(
   return builder(passage, bibleText)
 }
 
-export function getTabModel(tabId: string): 'sonnet' | 'haiku' {
+export function getTabModel(tabId: string): 'sonnet' | 'haiku' | 'opus' {
   return TAB_MODELS[tabId] || 'haiku'
 }
 
@@ -590,15 +703,33 @@ export function getTabTokens(tabId: string): number {
 // Price is per-tab but charged as a flat rate per study tier.
 // Source of truth for charging is PRICES in lib/usage.ts — keep these in sync.
 
+// Tier prices (keep in sync with PRICES in lib/usage.ts). Academic is gated by
+// the ACADEMIC_ENABLED feature flag — it only ever charges when the flag is on.
+const QUICK_PRICE    = 2.00
+const DEEP_PRICE     = 5.00
+const ACADEMIC_PRICE = 20.00
+
 export function isDeepTab(tabId: string): boolean {
   return (TAB_MODELS[tabId] || 'haiku') === 'sonnet'
 }
 
+export function isAcademicTab(tabId: string): boolean {
+  return (TAB_MODELS[tabId] || 'haiku') === 'opus'
+}
+
+// The tier a single tab belongs to (used by the API for billing + entitlement).
+export function studyTypeForTab(tabId: string): 'quick' | 'deep' | 'academic' {
+  const m = TAB_MODELS[tabId] || 'haiku'
+  return m === 'opus' ? 'academic' : m === 'sonnet' ? 'deep' : 'quick'
+}
+
 export function getTabPrice(tabId: string): number {
-  return isDeepTab(tabId) ? 5.00 : 2.00
+  return isAcademicTab(tabId) ? ACADEMIC_PRICE : isDeepTab(tabId) ? DEEP_PRICE : QUICK_PRICE
 }
 
 export function getStudyPrice(tabIds: string[]): number {
-  // If any tab in the study is Sonnet, it's a $5 (Deep Dive) study
-  return tabIds.some(t => isDeepTab(t)) ? 5.00 : 2.00
+  // Highest tier present wins: any Opus tab → Academic; else any Sonnet → Deep; else Quick
+  if (tabIds.some(t => isAcademicTab(t))) return ACADEMIC_PRICE
+  if (tabIds.some(t => isDeepTab(t)))     return DEEP_PRICE
+  return QUICK_PRICE
 }

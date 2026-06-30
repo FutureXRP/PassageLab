@@ -52,7 +52,7 @@ create table if not exists public.usage_events (
   passage            text not null,
   roles              text[] not null default '{}',
   tab_ids            text[] not null default '{}',
-  study_type         text not null check (study_type in ('quick', 'deep')),
+  study_type         text not null check (study_type in ('quick', 'deep', 'academic')),
   amount             numeric(10,2) not null default 0,
   promo              boolean not null default false,   -- free first-study claim
   stripe_payment_intent_id text,                       -- set on immediate paid charges
@@ -463,6 +463,14 @@ create table if not exists public.render_failures (
 );
 create index if not exists render_failures_unresolved_idx
   on public.render_failures (created_at desc) where resolved = false;
+
+-- usage_events: allow the Academic tier's study_type (idempotent). Required
+-- before enabling the Academic feature flag — otherwise an academic unlock
+-- insert is rejected by the old ('quick','deep') CHECK constraint. Harmless to
+-- run early: it only permits a new value that isn't written while the flag is off.
+alter table public.usage_events drop constraint if exists usage_events_study_type_check;
+alter table public.usage_events add  constraint usage_events_study_type_check
+  check (study_type in ('quick', 'deep', 'academic'));
 
 -- usage_events: coupon + refund tracking (idempotent)
 alter table public.usage_events add column if not exists coupon_code      text;
