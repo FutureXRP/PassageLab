@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseModelJson } from '../lib/json-repair'
+import { parseModelJson, trimToLastSentence, trimTruncatedAcademic } from '../lib/json-repair'
 
 describe('parseModelJson', () => {
   it('parses clean JSON', () => {
@@ -59,5 +59,70 @@ describe('parseModelJson', () => {
 
   it('throws when no object is present', () => {
     expect(() => parseModelJson('no json here at all')).toThrow()
+  })
+})
+
+describe('trimToLastSentence', () => {
+  it('leaves an already-complete sentence untouched', () => {
+    expect(trimToLastSentence('A full thought.')).toBe('A full thought.')
+  })
+
+  it('drops a trailing fragment back to the last complete sentence', () => {
+    // Mirrors the reported cut-off: "...Mounce, Knight. (4) The '"
+    const cut = "So, broadly, Mounce, Knight. (4) The '"
+    expect(trimToLastSentence(cut)).toBe('So, broadly, Mounce, Knight.')
+  })
+
+  it('returns empty string when there is no complete sentence', () => {
+    expect(trimToLastSentence('σωθήσεται δὲ διὰ τῆς τεκνογονίας (sōthēsetai de')).toBe('')
+  })
+})
+
+describe('trimTruncatedAcademic', () => {
+  it('trims the final block paragraph to its last complete sentence', () => {
+    const data = {
+      academic: {
+        blocks: [
+          { heading: 'Grounds', paragraphs: ['Adam was first formed, then Eve.'] },
+          { heading: 'v. 15', paragraphs: ["The reading is disputed. (4) The '"] },
+        ],
+      },
+    }
+    const out = trimTruncatedAcademic(data) as any
+    expect(out.academic.blocks).toHaveLength(2)
+    expect(out.academic.blocks[1].paragraphs[0]).toBe('The reading is disputed.')
+  })
+
+  it('drops the trailing block when it is only a mid-sentence fragment', () => {
+    const data = {
+      academic: {
+        blocks: [
+          { heading: 'Digest', paragraphs: ['A complete first block.'] },
+          { heading: 'Cut', paragraphs: ['σωθήσεται δὲ διὰ τῆς τεκνογονίας (sōthēsetai de'] },
+        ],
+      },
+    }
+    const out = trimTruncatedAcademic(data) as any
+    expect(out.academic.blocks).toHaveLength(1)
+    expect(out.academic.blocks[0].heading).toBe('Digest')
+  })
+
+  it('leaves a clean, complete document unchanged', () => {
+    const data = {
+      academic: {
+        blocks: [
+          { heading: 'A', paragraphs: ['First.'] },
+          { heading: 'B', paragraphs: ['Second sentence here.'] },
+        ],
+      },
+    }
+    const out = trimTruncatedAcademic(structuredClone(data)) as any
+    expect(out).toEqual(data)
+  })
+
+  it('never removes the only block, even if it is a fragment', () => {
+    const data = { academic: { blocks: [{ heading: 'Only', paragraphs: ['cut off mid'] }] } }
+    const out = trimTruncatedAcademic(data) as any
+    expect(out.academic.blocks).toHaveLength(1)
   })
 })

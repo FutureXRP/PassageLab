@@ -29,7 +29,7 @@ import {
 } from '@/lib/usage'
 import { getAuthUser } from '@/lib/auth'
 import { rateLimit, clientIp } from '@/lib/rate-limit'
-import { parseModelJson } from '@/lib/json-repair'
+import { parseModelJson, trimTruncatedAcademic } from '@/lib/json-repair'
 import { recordBookRecommendations, attachVerifiedLinks } from '@/lib/book-catalog'
 
 // Long Sonnet generations (Apologetics, Theology, Commentary) can exceed
@@ -261,7 +261,13 @@ export async function POST(req: NextRequest) {
     let truncated = false
 
     for (let attempt = 0; attempt < 2 && parsed === null; attempt++) {
-      const tokens = attempt === 0 ? maxTokens : Math.max(Math.ceil(maxTokens * 1.5), 4096)
+      // Retry (on a PARSE FAILURE only) re-rolls with a little more room, but
+      // capped at 9000 so even an Opus double-attempt stays inside the 300s
+      // function budget. Genuine truncation is handled after the loop by
+      // trimming — we never re-roll a full long generation just to un-cut it.
+      const tokens = attempt === 0
+        ? maxTokens
+        : Math.max(4096, Math.min(Math.ceil(maxTokens * 1.4), 9000))
       response = await anthropic.messages.create({
         model,
         max_tokens: tokens,
@@ -322,6 +328,14 @@ export async function POST(req: NextRequest) {
           ? 'Response was too long and got cut off. Try a shorter passage.'
           : 'Failed to parse AI response. Please try again.',
       }, { status: 500 })
+    }
+
+    // A parseable-but-truncated academic response ends mid-sentence — trim the
+    // trailing fragment so the study never renders cut off. (Rare now that
+    // budgets are sized to complete in one pass; this is the safety net.)
+    if (truncated && isAcademicTab(tabId)) {
+      console.warn(`Academic tab "${tabId}" hit max_tokens — trimming trailing fragment.`)
+      parsed = trimTruncatedAcademic(parsed)
     }
 
     // ── Usage tracking ────────────────────────────────────────────────────

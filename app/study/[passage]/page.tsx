@@ -2031,9 +2031,9 @@ export default function StudyPage() {
   }, [tabStates, studyUserId, isSample])
 
   // ── Queue system ─────────────────────────────────────────────────────────
-  // Sequential — one tab at a time, error-resilient
-  // Auto-queues all $1 tabs on load
-  // $2 tabs queued when user clicks "Generate All $2" or individual tab
+  // Concurrent — a small worker pool generates several tabs at once (see
+  // processQueue), error-resilient. Auto-queues Quick tabs on load; Deep and
+  // Academic tabs are queued on unlock.
 
   function queueTab(tabId: string) {
     const state = tabStates[tabId]
@@ -2094,21 +2094,38 @@ export default function StudyPage() {
     }
   }
 
+  // Generate tabs with a small concurrent worker pool. The first tab runs
+  // alone to warm Anthropic's prompt cache (the shared system + Bible-text
+  // blocks) and stagger the opening burst; the rest drain through
+  // GEN_CONCURRENCY lanes. This is what turns a ~30-min sequential Academic
+  // run (10 Opus tabs, one at a time) into roughly a third of the wall-clock.
   async function processQueue() {
     if (isProcessingQueue.current) return
     isProcessingQueue.current = true
 
-    while (generationQueue.current.length > 0) {
-      const tabId = generationQueue.current.shift()!
-      await generateTab(tabId)
-      // Small pause between tabs to avoid rate limiting
+    const GEN_CONCURRENCY = 3
+    try {
+      // Warm-up: first queued tab alone (on a full study this is a fast Quick
+      // tab) so the cached prompt blocks exist before the pool reads them.
       if (generationQueue.current.length > 0) {
-        await new Promise(r => setTimeout(r, 300))
+        await generateTab(generationQueue.current.shift()!)
       }
+      const worker = async () => {
+        while (generationQueue.current.length > 0) {
+          await generateTab(generationQueue.current.shift()!)
+        }
+      }
+      const lanes = Math.min(GEN_CONCURRENCY, Math.max(1, generationQueue.current.length))
+      await Promise.all(
+        Array.from({ length: lanes }, (_, i) =>
+          // staggered start so N Opus calls don't hit the API in the same instant
+          new Promise<void>(r => setTimeout(r, i * 400)).then(worker)
+        )
+      )
+    } finally {
+      isProcessingQueue.current = false
+      setCurrentlyGenerating(null)
     }
-
-    isProcessingQueue.current = false
-    setCurrentlyGenerating(null)
   }
 
   async function generateTab(tabId: string) {

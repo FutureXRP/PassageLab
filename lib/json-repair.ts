@@ -68,6 +68,57 @@ function escapeControlCharsInStrings(s: string): string {
   return out
 }
 
+// ─── Graceful truncation trim (academic tabs) ────────────────────────────────
+// parseModelJson salvages valid JSON from a truncated (max_tokens) response,
+// but the final block still ends mid-sentence — the visible cut-off. This trims
+// the trailing fragment of an academic document back to its last COMPLETE
+// sentence so nothing renders cut off, without re-rolling the whole generation.
+
+// Clean = ends on a real sentence terminator (. ! ?), optionally wrapped by
+// closing quotes/brackets. Deliberately NOT ':' ';' or a lone quote — a
+// trailing "…the following:" or an opening "The '" is a mid-thought fragment.
+export const endsCleanSentence = (s: string): boolean =>
+  /[.!?][)"'”’\]]*\s*$/.test((s || '').trim())
+
+// Trim a string back to its last complete sentence (greedy — keeps everything
+// through the right-most sentence terminator). Returns '' if none is found.
+export function trimToLastSentence(s: string): string {
+  const t = (s || '').trim()
+  if (!t || endsCleanSentence(t)) return t
+  const m = t.match(/^[\s\S]*[.!?][)"'”’\]]*(?=\s|$)/)
+  return m ? m[0].trim() : ''
+}
+
+export function trimTruncatedAcademic(data: Record<string, unknown>): Record<string, unknown> {
+  const academic = (data as { academic?: { blocks?: unknown[] } }).academic
+  const blocks = academic?.blocks
+  if (!Array.isArray(blocks) || blocks.length === 0) return data
+
+  const last = blocks[blocks.length - 1] as { paragraphs?: unknown[]; bullets?: unknown[] } | null
+  if (last && typeof last === 'object') {
+    // Drop/trim a trailing incomplete bullet
+    if (Array.isArray(last.bullets) && last.bullets.length > 0) {
+      const lb = String(last.bullets[last.bullets.length - 1] || '')
+      if (lb && !endsCleanSentence(lb)) {
+        const fixed = trimToLastSentence(lb)
+        if (fixed) last.bullets[last.bullets.length - 1] = fixed
+        else last.bullets.pop()
+      }
+    }
+    // Trim the final paragraph back to its last complete sentence
+    if (Array.isArray(last.paragraphs) && last.paragraphs.length > 0) {
+      const fixed = trimToLastSentence(String(last.paragraphs[last.paragraphs.length - 1] || ''))
+      if (fixed) last.paragraphs[last.paragraphs.length - 1] = fixed
+      else last.paragraphs.pop()
+    }
+    // If the block lost all its prose, drop it entirely (but keep ≥1 block)
+    const noProse   = !Array.isArray(last.paragraphs) || last.paragraphs.length === 0
+    const noBullets = !Array.isArray(last.bullets)    || last.bullets.length === 0
+    if (noProse && noBullets && blocks.length > 1) blocks.pop()
+  }
+  return data
+}
+
 function closeOpenStructures(s: string): Record<string, unknown> | null {
   const stack: string[] = []
   let inString = false

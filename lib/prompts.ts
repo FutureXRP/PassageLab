@@ -146,17 +146,20 @@ export const TAB_TOKENS: Record<string, number> = {
   // Sources page is intentionally large — a robust bibliography (25-30 works
   // across categories, each with multiple citation styles). Haiku, so cheap.
   citations:       5000,
-  // Academic tier (Opus) — long-form; the tab route gives Opus a larger time budget
-  exegesis:        6000,
-  structure:       5000,
-  digest:          6000,
-  question:        5000,
-  apparatus:       4500,
-  parallels:       5000,
-  reception:       5500,
-  excursus:        5500,
-  bibliography:    6000,
-  research:        5500,
+  // Academic tier (Opus) — long-form; the tab route gives Opus a larger time
+  // budget. Sized so a full 9-12 block treatment completes in ONE pass without
+  // hitting max_tokens (a truncated response cut off mid-sentence). Opus at
+  // ~8000 tokens finishes comfortably inside the 300s function budget.
+  exegesis:        8000,
+  structure:       7000,
+  digest:          8000,
+  question:        7000,
+  apparatus:       6500,
+  parallels:       7000,
+  reception:       7500,
+  excursus:        7500,
+  bibliography:    8000,
+  research:        7000,
 }
 
 // ─── Bible text injection ──────────────────────────────────────────────────
@@ -218,7 +221,8 @@ Requirements:
 - Be specific to THIS passage — never generic. Engage the Greek/Hebrew where relevant (give the original script AND a transliteration).
 - Name real scholars, commentaries, journals, and works. NEVER invent citations, ISBNs, manuscript sigla, or page numbers; if you are not certain of a detail, omit it or hedge ("verify before citing"). Accuracy outranks volume.
 - Represent contested positions fairly and at their strongest; distinguish what the text asserts from what later systems derived.
-- Be substantial: produce 7-12 content-rich blocks.
+- Be substantial: produce 8-12 content-rich blocks.
+- CRITICAL: return a COMPLETE document. Finish every sentence and close the JSON. A tighter, fully-finished treatment is far better than a longer one that stops mid-thought — never trail off. Budget your length so the whole response fits.
 
 Return ONLY raw JSON of EXACTLY this shape (no markdown, no backticks):
 {"academic":{
@@ -647,7 +651,7 @@ Provide 8-10 commentaries, 8-10 background_works (monographs and major studies),
 
   // ── Academic tier (Opus) — all share the academicPrompt schema ────────────
   exegesis: (p, b) => academicPrompt(p, b, 'Exegesis',
-    'Provide a clause-by-clause exegetical commentary covering EVERY verse of the passage in order. Use one or more blocks per verse or verse-group, each "chip"-tagged with the reference (e.g. "v. 12"). For each: the Greek text decisions, syntax, lexical cruxes, the interpretive options at any disputed point (with proponents), and what is theologically at stake. End with a block summarizing the exegetical decisions adopted vs. the chief alternatives.'),
+    'Provide a clause-by-clause exegetical commentary covering EVERY verse of the passage in order, grouping adjacent verses into clause-units so the whole fits ~9-12 blocks (do NOT make one block per verse for a long passage — cluster them). Chip-tag each block with its reference (e.g. "vv. 3-4"). For each: the Greek text decisions, syntax, lexical cruxes, the interpretive options at any disputed point (with proponents), and what is theologically at stake. Keep each block tight and finish every sentence. End with a block summarizing the exegetical decisions adopted vs. the chief alternatives.'),
 
   structure: (p, b) => academicPrompt(p, b, 'Structure & Discourse',
     'Analyze the literary structure and discourse flow: the macro-movement and any anacoluthon/inclusio/chiasm, a clause-flow outline (which clauses ground, qualify, or conclude others), the chain of conjunctions and what each does, the rhetorical forms in play (e.g. synkrisis, a-fortiori/qal wahomer, antithesis, diatribe), and how the passage functions within its larger argument/book context.'),
