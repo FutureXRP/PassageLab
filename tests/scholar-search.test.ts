@@ -7,6 +7,7 @@ import {
   fromOpenAlex,
   fromGoogleBooks,
   dedupe,
+  biblicalRelevanceScore,
   type ScholarSource,
 } from '../lib/scholar-search'
 
@@ -121,6 +122,57 @@ describe('normalizers', () => {
       industryIdentifiers: [{ type: 'ISBN_13', identifier: '9780664221232' }],
     } })
     expect(s).toMatchObject({ type: 'book', title: 'Galatians: A Commentary', publisher: 'WJK', year: '2011', isbn: '9780664221232' })
+  })
+})
+
+describe('biblicalRelevanceScore', () => {
+  // The reported bug: searching "1 Timothy 2:1-15" returned STEM papers merely
+  // written by an author named Timothy. The score reads title/container only —
+  // never authors — so such a paper scores 0 and is dropped (articles need ≥4).
+  it('scores author-name collisions to zero (the "Timothy" bug)', () => {
+    const stem: ScholarSource = {
+      type: 'article',
+      title: 'Advances in Antimicrobial Resistance',
+      container: 'Nature Microbiology',
+      authors: [{ family: 'Walsh', given: 'Timothy R.' }],
+      origin: 'crossref',
+    }
+    expect(biblicalRelevanceScore(stem, '1 timothy')).toBe(0)
+  })
+
+  it('scores a real journal article on the passage as relevant', () => {
+    const real: ScholarSource = {
+      type: 'article',
+      title: 'Silence and Submission in 1 Timothy 2:11-15',
+      container: 'Journal for the Study of the New Testament',
+      authors: [{ family: 'Marshall', given: 'I. Howard' }],
+      origin: 'crossref',
+    }
+    expect(biblicalRelevanceScore(real, '1 timothy')).toBeGreaterThanOrEqual(4)
+  })
+
+  it('scores a commentary volume as relevant even without "1 Timothy" spelled out', () => {
+    const book: ScholarSource = {
+      type: 'book',
+      title: 'The Pastoral Epistles: Timothy and Titus',
+      publisher: 'Eerdmans',
+      authors: [{ family: 'Mounce', given: 'William D.' }],
+      origin: 'googlebooks',
+    }
+    // 'epistle' (strong) + 'timothy' (core word) clears the Google Books bar (≥2)
+    expect(biblicalRelevanceScore(book, '1 timothy')).toBeGreaterThanOrEqual(2)
+  })
+
+  it('does not over-reward a bare ambiguous book word without context', () => {
+    const ambiguous: ScholarSource = {
+      type: 'article',
+      title: 'The Fall of the Romans',
+      container: 'Journal of Ancient History',
+      authors: [{ family: 'Gibbon', given: 'Edward' }],
+      origin: 'openalex',
+    }
+    // "romans" appears but with no biblical signal — below the article bar (4)
+    expect(biblicalRelevanceScore(ambiguous, 'romans')).toBeLessThan(4)
   })
 })
 

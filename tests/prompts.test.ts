@@ -13,9 +13,10 @@ import {
 } from '../lib/prompts'
 
 describe('model routing / pricing rule', () => {
-  it('haiku tabs are $1, sonnet tabs are $2', () => {
-    expect(getTabPrice('overview')).toBe(1.00)
-    expect(getTabPrice('language')).toBe(2.00)
+  it('quick tabs are $5, deep tabs are $10, academic tabs are $20', () => {
+    expect(getTabPrice('overview')).toBe(5.00)
+    expect(getTabPrice('language')).toBe(10.00)
+    expect(getTabPrice('exegesis')).toBe(20.00)
   })
 
   it('isDeepTab matches sonnet routing exactly', () => {
@@ -24,14 +25,15 @@ describe('model routing / pricing rule', () => {
     }
   })
 
-  it('a study with any sonnet tab is a $2 study', () => {
-    expect(getStudyPrice(['overview', 'history'])).toBe(1.00)
-    expect(getStudyPrice(['overview', 'language'])).toBe(2.00)
+  it('a study is priced at its highest tier (quick < deep < academic)', () => {
+    expect(getStudyPrice(['overview', 'history'])).toBe(5.00)
+    expect(getStudyPrice(['overview', 'language'])).toBe(10.00)
+    expect(getStudyPrice(['overview', 'language', 'exegesis'])).toBe(20.00)
   })
 
-  it('unknown tabs default to haiku / $1', () => {
+  it('unknown tabs default to haiku / $5', () => {
     expect(getTabModel('nonexistent')).toBe('haiku')
-    expect(getTabPrice('nonexistent')).toBe(1.00)
+    expect(getTabPrice('nonexistent')).toBe(5.00)
   })
 })
 

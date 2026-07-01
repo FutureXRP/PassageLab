@@ -65,6 +65,105 @@ export function deriveBook(passage: string): string {
   return (m ? m[1] : passage || '').trim()
 }
 
+// ─── Relevance: keep biblical scholarship, drop name/topic collisions ─────────
+// The old code sent the raw passage ("1 Timothy 2:1-15") straight to OpenAlex /
+// Crossref, which index mostly non-biblical scholarship — so "Timothy" matched
+// the personal NAME and returned STEM papers by authors named Timothy. Two
+// fixes: (1) search a biblical-studies-scoped query instead of the raw passage,
+// and (2) score every result for biblical relevance and drop the noise.
+
+const NT_BOOKS = new Set([
+  'matthew', 'mark', 'luke', 'john', 'acts', 'romans', '1 corinthians', '2 corinthians',
+  'galatians', 'ephesians', 'philippians', 'colossians', '1 thessalonians', '2 thessalonians',
+  '1 timothy', '2 timothy', 'titus', 'philemon', 'hebrews', 'james', '1 peter', '2 peter',
+  '1 john', '2 john', '3 john', 'jude', 'revelation',
+])
+const OT_BOOKS = new Set([
+  'genesis', 'exodus', 'leviticus', 'numbers', 'deuteronomy', 'joshua', 'judges', 'ruth',
+  '1 samuel', '2 samuel', '1 kings', '2 kings', '1 chronicles', '2 chronicles', 'ezra',
+  'nehemiah', 'esther', 'job', 'psalm', 'psalms', 'proverbs', 'ecclesiastes',
+  'song of solomon', 'song of songs', 'isaiah', 'jeremiah', 'lamentations', 'ezekiel',
+  'daniel', 'hosea', 'joel', 'amos', 'obadiah', 'jonah', 'micah', 'nahum', 'habakkuk',
+  'zephaniah', 'haggai', 'zechariah', 'malachi',
+])
+
+// Biblical-studies context appended to the raw book name so the free APIs return
+// commentaries / exegesis rather than papers by an author who happens to share a
+// name with the book. Testament-specific where the book can be classified.
+function biblicalContextTerms(bookLc: string): string {
+  const terms = ['commentary', 'exegesis', 'biblical']
+  if (NT_BOOKS.has(bookLc)) terms.push('New Testament')
+  else if (OT_BOOKS.has(bookLc)) terms.push('Old Testament')
+  return terms.join(' ')
+}
+
+// Known biblical-studies journals / commentary series. A container or publisher
+// match is a strong, on-its-own-sufficient signal of relevance.
+const BIBLICAL_VENUES = [
+  'journal of biblical literature', 'new testament studies', 'novum testamentum',
+  'catholic biblical quarterly', 'journal for the study of the new testament',
+  'journal for the study of the old testament', 'vetus testamentum', 'tyndale bulletin',
+  'biblica', 'journal of theological studies', 'harvard theological review',
+  'neutestamentliche wissenschaft', 'alttestamentliche wissenschaft', 'expository times',
+  'currents in biblical research', 'bulletin for biblical research',
+  'westminster theological journal', 'evangelical theological society', 'biblical interpretation',
+  'review of biblical literature', 'word biblical commentary', 'new international commentary',
+  'anchor bible', 'anchor yale', 'hermeneia', 'sacra pagina', 'pillar new testament',
+  'international critical commentary', 'baker exegetical', 'zondervan exegetical',
+  'scottish journal of theology', 'bibliotheca sacra', 'trinity journal',
+  'biblical theology bulletin', 'catholic biblical', 'ex auditu',
+]
+
+// Terms that strongly indicate biblical / theological scholarship.
+const STRONG_SIGNALS = [
+  'exeges', 'hermeneut', 'septuagint', 'epistle', 'gospel', 'pentateuch', 'pauline',
+  'synoptic', 'messian', 'patristic', 'midrash', 'qumran', 'testament', 'scriptur',
+  'apocalyp', 'eschatolog', 'soteriolog', 'christolog', 'ecclesiolog', 'pericope',
+  'deutero', 'intertestamental', 'apostolic',
+]
+
+// Weaker biblical terms — need a companion signal (for articles) to count.
+const GENERIC_SIGNALS = ['bible', 'biblical', 'commentary', 'commentaries', 'theolog', 'divinity']
+
+const esc = (x: string) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+// Score a source for biblical-studies relevance. The haystack is title +
+// container + publisher only — deliberately NOT the authors — so a paper merely
+// written by someone named "Timothy" scores nothing for the book 1 Timothy.
+export function biblicalRelevanceScore(s: ScholarSource, bookLc: string): number {
+  const hay = `${s.title || ''} ${s.container || ''} ${s.publisher || ''}`.toLowerCase()
+  if (!hay.trim()) return 0
+  const container = `${s.container || ''} ${s.publisher || ''}`.toLowerCase()
+
+  let score = 0
+  if (BIBLICAL_VENUES.some(v => container.includes(v))) score += 5
+
+  // "<Book> <number>" in the title is a scripture-citation form ("Romans 5",
+  // "1 Timothy 2", "John 3") that non-biblical work essentially never uses.
+  const bookPat = esc(bookLc).replace(/\s+/g, '\\s+')
+  if (new RegExp(`\\b${bookPat}\\s*\\.?\\s*\\d`, 'i').test(hay)) score += 5
+
+  if (STRONG_SIGNALS.some(t => hay.includes(t))) score += 3
+  if (GENERIC_SIGNALS.some(t => hay.includes(t))) score += 2
+
+  // Full book phrase incl. any leading number ("1 timothy"), plus the bare core
+  // word ("timothy") — both title/container-only, so still name-collision-safe.
+  if (new RegExp(`\\b${bookPat}\\b`, 'i').test(hay)) score += 2
+  const core = bookLc.replace(/^[1-3]\s+/, '')
+  if (core && core !== bookLc && new RegExp(`\\b${esc(core).replace(/\s+/g, '\\s+')}\\b`, 'i').test(hay)) {
+    score += 2
+  }
+  return score
+}
+
+// Keep only sources with real biblical-studies relevance. Google Books results
+// come from an already biblical-scoped query and are far less noisy, so they
+// clear a lower bar; OpenAlex/Crossref (mostly non-biblical indexes) clear more.
+function isBiblicallyRelevant(s: ScholarSource, bookLc: string): boolean {
+  const threshold = s.origin === 'googlebooks' ? 2 : 4
+  return biblicalRelevanceScore(s, bookLc) >= threshold
+}
+
 function authorsChicago(authors: Author[]): string {
   const f1 = (a: Author) => (a.given ? `${a.family}, ${a.given}` : a.family)
   const fN = (a: Author) => (a.given ? `${a.given} ${a.family}` : a.family)
@@ -245,7 +344,7 @@ async function getJson(url: string): Promise<any | null> {
 async function searchOpenAlex(query: string): Promise<ScholarSource[]> {
   const u = new URL('https://api.openalex.org/works')
   u.searchParams.set('search', query)
-  u.searchParams.set('per_page', '20')
+  u.searchParams.set('per_page', '25')
   u.searchParams.set('mailto', CONTACT)
   const j = await getJson(u.toString())
   return (j?.results || []).map(fromOpenAlex).filter(Boolean) as ScholarSource[]
@@ -254,7 +353,7 @@ async function searchOpenAlex(query: string): Promise<ScholarSource[]> {
 async function searchCrossref(query: string): Promise<ScholarSource[]> {
   const u = new URL('https://api.crossref.org/works')
   u.searchParams.set('query', query)
-  u.searchParams.set('rows', '20')
+  u.searchParams.set('rows', '25')
   u.searchParams.set('select', 'title,author,container-title,issued,volume,issue,page,DOI,ISBN,type,publisher,URL,is-referenced-by-count')
   u.searchParams.set('mailto', CONTACT)
   const j = await getJson(u.toString())
@@ -278,11 +377,18 @@ async function searchGoogleBooks(query: string): Promise<ScholarSource[]> {
 export async function findSources(passage: string): Promise<SourceResults> {
   const ref = (passage || '').trim()
   const book = deriveBook(ref)
+  const bookLc = book.toLowerCase()
+
+  // Search a biblical-studies-scoped query — NOT the raw passage. Sending
+  // "1 Timothy 2:1-15" verbatim made "Timothy" match a personal name and
+  // returned STEM papers; "1 Timothy commentary exegesis biblical New Testament"
+  // returns actual scholarship on the book.
+  const articleQuery = `${book} ${biblicalContextTerms(bookLc)}`.trim()
 
   const [oa, cr, gb] = await Promise.allSettled([
-    searchOpenAlex(ref),
-    searchCrossref(ref),
-    searchGoogleBooks(`${book} commentary`),
+    searchOpenAlex(articleQuery),
+    searchCrossref(articleQuery),
+    searchGoogleBooks(`${book} bible commentary`),
   ])
   const all: ScholarSource[] = [
     ...(oa.status === 'fulfilled' ? oa.value : []),
@@ -290,7 +396,8 @@ export async function findSources(passage: string): Promise<SourceResults> {
     ...(gb.status === 'fulfilled' ? gb.value : []),
   ]
 
-  const deduped = dedupe(all)
+  // Drop name/topic collisions (the "Timothy" STEM noise) before ranking.
+  const deduped = dedupe(all.filter(s => isBiblicallyRelevant(s, bookLc)))
   const articles = deduped
     .filter(s => s.type === 'article' || s.type === 'chapter')
     .sort((a, b) => (b.citations || 0) - (a.citations || 0) || Number(b.year || 0) - Number(a.year || 0))

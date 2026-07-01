@@ -1562,6 +1562,14 @@ function PaymentModal({ tier, passage, roles, alreadyPaidQuick, alreadyPaidDeep,
                 : 'Pay only for what you unlock. Your card is charged the moment you unlock — no subscription, no monthly bill.'}
             </div>
 
+            <div style={{ fontSize: 11, color: SLATE, textAlign: 'center', marginBottom: 14, lineHeight: 1.6 }}>
+              ⏱ {isAcademic
+                ? 'Every tab is written fresh when you unlock — the full Academic study can take up to 30 minutes to complete.'
+                : isDeep
+                ? 'Every tab is written fresh when you unlock — the full Deep Dive can take up to 10 minutes to complete.'
+                : 'Your study is written fresh when you unlock — usually ready in under 2 minutes.'}
+            </div>
+
             <button onClick={() => setStep('auth')} style={btnPrimary}>
               {pitchFree ? 'Claim your free study' : `Continue — ${price}`}
             </button>
@@ -2582,11 +2590,20 @@ export default function StudyPage() {
 
         {/* Generating spinner */}
         {activeState?.status === 'generating' && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '40px 0' }}>
-            <div style={{ width: 20, height: 20, border: `2px solid ${isDeepActive ? PURPLE : GOLD}`, borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
-            <span style={{ color: SLATE, fontSize: 14 }}>
-              {isDeepActive ? 'Running deep analysis…' : 'Generating study content…'}
-            </span>
+          <div style={{ padding: '40px 0' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={{ width: 20, height: 20, border: `2px solid ${isAcademicActive ? ACADEMIC : isDeepActive ? PURPLE : GOLD}`, borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+              <span style={{ color: SLATE, fontSize: 14 }}>
+                {isAcademicActive ? 'Composing doctoral-grade analysis…' : isDeepActive ? 'Running deep analysis…' : 'Generating study content…'}
+              </span>
+            </div>
+            <div style={{ color: SLATE, fontSize: 12, marginTop: 12, marginLeft: 32, lineHeight: 1.6, opacity: 0.85 }}>
+              ⏱ {isAcademicActive
+                ? 'Written fresh, tab by tab — the full Academic study can take up to 30 minutes. You can leave and come back; every tab autosaves to your account as it finishes.'
+                : isDeepActive
+                ? 'Written fresh, tab by tab — the full Deep Dive can take up to 10 minutes. You can leave and come back; every tab autosaves to your account as it finishes.'
+                : 'Usually ready in under 2 minutes.'}
+            </div>
           </div>
         )}
 
