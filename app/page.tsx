@@ -198,12 +198,12 @@ function HomeContent() {
           </div>
           <div style={{ width: 1, height: 32, background: 'rgba(255,255,255,0.1)' }} />
           <div style={{ textAlign: 'center' as const }}>
-            <div style={{ fontSize: 18, fontWeight: 700, color: GOLD }}>$2</div>
+            <div style={{ fontSize: 18, fontWeight: 700, color: GOLD }}>$5</div>
             <div style={{ fontSize: 12, color: SLATE }}>Practical Study</div>
           </div>
           <div style={{ width: 1, height: 32, background: 'rgba(255,255,255,0.1)' }} />
           <div style={{ textAlign: 'center' as const }}>
-            <div style={{ fontSize: 18, fontWeight: 700, color: '#A78BFA' }}>$5</div>
+            <div style={{ fontSize: 18, fontWeight: 700, color: '#A78BFA' }}>$10</div>
             <div style={{ fontSize: 12, color: SLATE }}>Scholarly Depth</div>
           </div>
           {ACADEMIC_ENABLED && (
@@ -218,7 +218,7 @@ function HomeContent() {
         </div>
 
         <div style={{ marginTop: 18, fontSize: 13, color: GOLD, textAlign: 'center' as const, fontFamily: SERIF, fontStyle: 'italic' as const }}>
-          ✦ Your first study is free
+          ✦ Your first Deep Dive is free
         </div>
 
         <a

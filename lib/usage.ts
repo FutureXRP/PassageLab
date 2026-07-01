@@ -1,9 +1,9 @@
 // PassageLab — usage.ts
 // Usage tracking, spending limits, unlock entitlements
 //
-// Billing model: each study unlock ($2 quick / $5 deep) is charged to the
-// saved card immediately by /api/checkout and recorded as a usage_event
-// (billed = true). A user's first basic study is free (promo = true,
+// Billing model: each study unlock ($5 quick / $10 deep / $20 academic) is
+// charged to the saved card immediately by /api/checkout and recorded as a
+// usage_event (billed = true). A user's first Deep Dive is free (promo = true,
 // amount 0). Per-tab generation events carry amount 0 (analytics only).
 // The /api/billing/charge cron is retained but a no-op under this model —
 // no unbilled billable usage accrues for it to collect.
@@ -19,8 +19,8 @@ const supabase = (supabaseUrl && supabaseKey)
 // ─── Pricing ───────────────────────────────────────────────────────────────
 
 export const PRICES = {
-  QUICK_STUDY: 2.00,
-  DEEP_DIVE:   5.00,
+  QUICK_STUDY: 5.00,
+  DEEP_DIVE:   10.00,
   ACADEMIC:    20.00,
 } as const
 

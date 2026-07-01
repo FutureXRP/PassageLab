@@ -1308,15 +1308,16 @@ function PaymentModal({ tier, passage, roles, alreadyPaidQuick, alreadyPaidDeep,
   const isDeep     = tier === 'deep'
   const isAcademic = tier === 'academic'
   const color  = isAcademic ? ACADEMIC : isDeep ? PURPLE : GOLD
-  // isFree: confirmed free (logged in, hasn't used the free study, basic tier).
+  // isFree: confirmed free (logged in, hasn't used the free study). The free
+  // first study is the DEEP DIVE ($10 value).
   // pitchFree: also pitch "free" on the pre-auth info step, which only logged-out
   // users ever see — most are new, so lead with the free offer.
-  // The free study only ever applies to the basic (Quick) tier.
-  const isFree    = !isDeep && !isAcademic && freeEligible
-  const pitchFree = !isDeep && !isAcademic && (freeEligible || !userId)
+  const isFree    = isDeep && freeEligible
+  const pitchFree = isDeep && (freeEligible || !userId)
   const price  = isAcademic
-    ? (alreadyPaidDeep ? '+$15' : alreadyPaidQuick ? '+$18' : '$20')
-    : isFree ? 'Free' : isDeep ? (alreadyPaidQuick ? '+$3' : '$5') : '$2'
+    ? (alreadyPaidDeep ? '+$10' : alreadyPaidQuick ? '+$15' : '$20')
+    : isDeep ? (isFree ? 'Free' : alreadyPaidQuick ? '+$5' : '$10')
+    : '$5'
   const label  = isAcademic ? 'Academic Study' : isDeep ? 'Deep Dive' : 'Quick Study'
   const tabs   = isAcademic
     ? ['Exegesis', 'Structure & Discourse', 'Commentary Digest', 'State of the Question',
@@ -2265,7 +2266,7 @@ export default function StudyPage() {
                   whiteSpace:   'nowrap' as const,
                 }}
               >
-                Quick Study — $2 🔒
+                Quick Study — $5 🔒
               </button>
               {deepTabs.length > 0 && (
                 <button
@@ -2283,7 +2284,7 @@ export default function StudyPage() {
                     whiteSpace:   'nowrap' as const,
                   }}
                 >
-                  Deep Dive — $5 🔒
+                  Deep Dive — $10 🔒
                 </button>
               )}
               {academicTabs.length > 0 && (
@@ -2312,13 +2313,13 @@ export default function StudyPage() {
         {/* Teaser row in free state */}
         {studyState === 'free' && (
           <div style={{ padding: '6px 20px 8px', background: 'rgba(255,255,255,0.01)', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' as const }}>
-            <span style={{ fontSize: 11, color: GOLD }}>$2 unlocks:</span>
+            <span style={{ fontSize: 11, color: GOLD }}>$5 unlocks:</span>
             {quickTabs.filter(t => t !== 'overview').map(tabId => (
               <span key={tabId} style={{ fontSize: 11, color: 'rgba(201,151,58,0.5)', background: 'rgba(201,151,58,0.04)', border: '0.5px solid rgba(201,151,58,0.12)', borderRadius: 4, padding: '2px 8px' }}>{TAB_LABELS[tabId]}</span>
             ))}
             {deepTabs.length > 0 && (
               <>
-                <span style={{ fontSize: 11, color: PURPLE, marginLeft: 8 }}>$5 unlocks everything:</span>
+                <span style={{ fontSize: 11, color: PURPLE, marginLeft: 8 }}>$10 unlocks everything · first one free:</span>
                 {deepTabs.slice(0, 4).map(tabId => (
                   <span key={tabId} style={{ fontSize: 11, color: 'rgba(167,139,250,0.5)', background: 'rgba(167,139,250,0.04)', border: '0.5px solid rgba(167,139,250,0.12)', borderRadius: 4, padding: '2px 8px' }}>{TAB_LABELS[tabId]}</span>
                 ))}
@@ -2333,7 +2334,7 @@ export default function StudyPage() {
           <div style={{ background: 'rgba(255,255,255,0.02)', borderBottom: '0.5px solid rgba(255,255,255,0.06)' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 20px 0' }}>
               <span style={{ fontSize: 10, color: GOLD, textTransform: 'uppercase' as const, letterSpacing: '1px', fontWeight: 600 }}>
-                $2 — Practical Study ✓
+                $5 — Practical Study ✓
               </span>
               {studyState === 'quick' && deepTabs.length > 0 && (
                 <button
@@ -2351,7 +2352,7 @@ export default function StudyPage() {
                     whiteSpace:   'nowrap' as const,
                   }}
                 >
-                  Add Deep Dive — +$3 🔒
+                  Add Deep Dive — +$5 🔒
                 </button>
               )}
             </div>
@@ -2376,7 +2377,7 @@ export default function StudyPage() {
         {studyState === 'deep' && deepTabs.length > 0 && (
           <div style={{ background: 'rgba(167,139,250,0.03)' }}>
             <div style={{ fontSize: 10, color: PURPLE, textTransform: 'uppercase' as const, letterSpacing: '1px', fontWeight: 600, padding: '6px 20px 0' }}>
-              $5 — Scholarly Depth ✓
+              $10 — Scholarly Depth ✓
             </div>
             <div style={S.tabRow}>
               {deepTabs.map(tabId => (
@@ -2420,7 +2421,7 @@ export default function StudyPage() {
           <div style={{ background: 'rgba(167,139,250,0.02)' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 20px 0' }}>
               <span style={{ fontSize: 10, color: 'rgba(167,139,250,0.5)', textTransform: 'uppercase' as const, letterSpacing: '1px', fontWeight: 600 }}>
-                $5 — Scholarly Depth 🔒
+                $10 — Scholarly Depth 🔒
               </span>
               {studyState === 'quick' && (
                 <button
@@ -2437,7 +2438,7 @@ export default function StudyPage() {
                     fontFamily:   SANS,
                   }}
                 >
-                  Unlock — +$3 →
+                  Unlock — +$5 →
                 </button>
               )}
             </div>
@@ -2461,7 +2462,7 @@ export default function StudyPage() {
         {/* Teaser row in quick state */}
         {studyState === 'quick' && deepTabs.length > 0 && (
           <div style={{ padding: '6px 20px 8px', background: 'rgba(167,139,250,0.02)', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' as const }}>
-            <span style={{ fontSize: 11, color: SLATE }}>Add $3 more for full scholarly depth:</span>
+            <span style={{ fontSize: 11, color: SLATE }}>Add $5 more for full scholarly depth:</span>
             {deepTabs.map(tabId => (
               <span key={tabId} style={{ fontSize: 11, color: 'rgba(167,139,250,0.5)', background: 'rgba(167,139,250,0.04)', border: '0.5px solid rgba(167,139,250,0.12)', borderRadius: 4, padding: '2px 8px' }}>{TAB_LABELS[tabId]}</span>
             ))}
@@ -2504,7 +2505,7 @@ export default function StudyPage() {
                   onClick={() => setModal('academic')}
                   style={{ background: 'rgba(84,201,160,0.1)', color: ACADEMIC, border: '1px solid rgba(84,201,160,0.3)', borderRadius: 6, padding: '4px 14px', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: SANS }}
                 >
-                  {studyState === 'deep' ? 'Unlock — +$15 →' : 'Unlock — +$18 →'}
+                  {studyState === 'deep' ? 'Unlock — +$10 →' : 'Unlock — +$15 →'}
                 </button>
               )}
             </div>

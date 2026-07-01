@@ -262,7 +262,7 @@ export default function AccountPage() {
                 Paid in real time at unlock{profile?.card_last4 ? ` to ${profile.card_brand || 'card'} •••• ${profile.card_last4}` : ' — no card on file yet'}. No monthly bill.
               </div>
               <div style={{ fontSize: 12, color: SLATE, marginTop: 6 }}>
-                Quick Study <span style={{ color: GOLD, fontWeight: 600 }}>$2</span> · Deep Dive <span style={{ color: '#A78BFA', fontWeight: 600 }}>$5</span>{ACADEMIC_ENABLED && <> · Academic <span style={{ color: '#54C9A0', fontWeight: 600 }}>$20</span></>} · your first study is free
+                Quick Study <span style={{ color: GOLD, fontWeight: 600 }}>$5</span> · Deep Dive <span style={{ color: '#A78BFA', fontWeight: 600 }}>$10</span>{ACADEMIC_ENABLED && <> · Academic <span style={{ color: '#54C9A0', fontWeight: 600 }}>$20</span></>} · your first Deep Dive is free
               </div>
             </div>
 
@@ -322,7 +322,7 @@ export default function AccountPage() {
             <div style={card}>
               <div style={secTitle}>Recent Studies</div>
               {charges.length === 0 && (
-                <div style={{ fontSize: 13, color: SLATE }}>No studies yet — your first study is free.</div>
+                <div style={{ fontSize: 13, color: SLATE }}>No studies yet — your first Deep Dive is free.</div>
               )}
               {charges.map((c, i) => (
                 <div key={`${c.created_at}-${i}`} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '0.5px solid rgba(255,255,255,0.06)', gap: 12 }}>

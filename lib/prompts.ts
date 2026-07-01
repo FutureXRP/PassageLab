@@ -698,15 +698,16 @@ export function getTabTokens(tabId: string): number {
 }
 
 // ─── Pricing ───────────────────────────────────────────────────────────────
-// Haiku tab = $2 study price (Quick Study tier)
-// Sonnet tab = $5 study price (Deep Dive tier)
+// Haiku tab = $5 study price (Quick Study tier)
+// Sonnet tab = $10 study price (Deep Dive tier)
+// Opus tab  = $20 study price (Academic tier, feature-flagged)
 // Price is per-tab but charged as a flat rate per study tier.
 // Source of truth for charging is PRICES in lib/usage.ts — keep these in sync.
 
 // Tier prices (keep in sync with PRICES in lib/usage.ts). Academic is gated by
 // the ACADEMIC_ENABLED feature flag — it only ever charges when the flag is on.
-const QUICK_PRICE    = 2.00
-const DEEP_PRICE     = 5.00
+const QUICK_PRICE    = 5.00
+const DEEP_PRICE     = 10.00
 const ACADEMIC_PRICE = 20.00
 
 export function isDeepTab(tabId: string): boolean {

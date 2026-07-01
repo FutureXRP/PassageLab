@@ -1,6 +1,6 @@
 // PassageLab — app/api/checkout/route.ts
 // Unlocks a study for the signed-in user. Two paths:
-//   1. Free first basic study — one per account (promo), $0, no charge.
+//   1. Free first Deep Dive — one per account (promo), $0, no charge.
 //   2. Paid unlock — the saved card is charged IMMEDIATELY (pay-at-unlock),
 //      then recorded as a billed usage_event.
 // The user comes from the session cookie — never from the request body.
@@ -94,17 +94,18 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: true, amount: 0, alreadyUnlocked: true })
     }
 
-    // ── Free first basic study ───────────────────────────────────────────────
-    // One per account, basic (quick) tier only. Records a $0 promo unlock; no
-    // Stripe charge. hasClaimedFreeStudy fails closed, so an outage can't mint
-    // free studies.
-    if (tier === 'quick' && !(await hasClaimedFreeStudy(user.id))) {
+    // ── Free first study — the Deep Dive ─────────────────────────────────────
+    // One per account, Deep Dive tier ($10 value). Records a $0 promo unlock;
+    // no Stripe charge. Recorded as study_type 'deep' so it unlocks the full
+    // Deep Dive (and, being nested, the Quick tabs too). hasClaimedFreeStudy
+    // fails closed, so an outage can't mint free studies.
+    if (tier === 'deep' && !(await hasClaimedFreeStudy(user.id))) {
       const { error: freeError } = await supabase.from('usage_events').insert({
         user_id:    user.id,
         passage,
         roles:      rolesArr,
-        tab_ids:    ['quick'],
-        study_type: 'quick',
+        tab_ids:    ['deep'],
+        study_type: 'deep',
         amount:     0,
         promo:      true,
         cached:     false,
