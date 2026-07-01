@@ -74,12 +74,25 @@ const btnPrimary: React.CSSProperties = {
   cursor: 'pointer', fontFamily: SANS,
 }
 
+// Small tinted pill-link for the per-study "Expand" upgrades
+const expandBtn = (color: string): React.CSSProperties => ({
+  background: `${color}14`, color, border: `1px solid ${color}40`,
+  borderRadius: 6, padding: '4px 10px', fontSize: 11, fontWeight: 700,
+  textDecoration: 'none', fontFamily: SANS, whiteSpace: 'nowrap',
+})
+
+type Tier = 'quick' | 'deep' | 'academic'
+const TIER_RANK: Record<Tier, number> = { quick: 1, deep: 2, academic: 3 }
+const TIER_LABEL: Record<Tier, string> = { quick: 'Quick Study', deep: 'Deep Dive', academic: 'Academic' }
+
 export default function AccountPage() {
   const [loading, setLoading]   = useState(true)
   const [userId, setUserId]     = useState<string | null>(null)
   const [profile, setProfile]   = useState<ProfileRow | null>(null)
   const [charges, setCharges]   = useState<ChargeRow[]>([])
   const [savedStudies, setSavedStudies] = useState<SavedStudyRow[]>([])
+  // Highest tier unlocked per passage — drives the per-study "Expand" buttons
+  const [tierByPassage, setTierByPassage] = useState<Record<string, Tier>>({})
   const [monthSpend, setMonthSpend] = useState(0)
   const [quickCount, setQuickCount] = useState(0)
   const [deepCount, setDeepCount]   = useState(0)
@@ -99,7 +112,7 @@ export default function AccountPage() {
     if (!supabase) return
     const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString()
 
-    const [profileRes, usageRes, chargesRes, studiesRes] = await Promise.all([
+    const [profileRes, usageRes, chargesRes, studiesRes, unlocksRes] = await Promise.all([
       supabase.from('profiles')
         .select('*')   // tolerate databases missing newer columns
         .eq('id', uid).single(),
@@ -119,6 +132,14 @@ export default function AccountPage() {
         .eq('user_id', uid)
         .order('updated_at', { ascending: false })
         .limit(100),
+      // ALL unlocks ever (paid, free claim, or coupon) — mirrors the server's
+      // getUnlockStatus filter. Used to badge each saved study with the tier
+      // owned and price its "Expand" upgrade as the difference only.
+      supabase.from('usage_events')
+        .select('passage, study_type')
+        .eq('user_id', uid)
+        .or('amount.gt.0,promo.is.true,coupon_code.not.is.null')
+        .limit(2000),
     ])
 
     if (profileRes.data) {
@@ -131,6 +152,15 @@ export default function AccountPage() {
     setDeepCount(events.filter(e => e.study_type === 'deep').length)
     setCharges(chargesRes.data || [])
     setSavedStudies(studiesRes.data || [])
+
+    // Reduce unlock events to the highest tier owned per passage
+    const tiers: Record<string, Tier> = {}
+    for (const e of (unlocksRes.data || []) as { passage: string; study_type: string }[]) {
+      const t = e.study_type as Tier
+      if (!TIER_RANK[t]) continue
+      if (!tiers[e.passage] || TIER_RANK[t] > TIER_RANK[tiers[e.passage]]) tiers[e.passage] = t
+    }
+    setTierByPassage(tiers)
   }
 
   async function deleteStudy(id: string) {
@@ -299,28 +329,46 @@ export default function AccountPage() {
                   No saved studies yet — every study you generate saves here automatically, on all your devices. Nothing is removed unless you delete it.
                 </div>
               )}
-              {savedStudies.map(s => (
-                <div key={s.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '0.5px solid rgba(255,255,255,0.06)', gap: 12 }}>
-                  <div style={{ minWidth: 0 }}>
-                    <Link
-                      href={`/study/${encodeURIComponent(s.passage)}?roles=${s.roles.join(',')}`}
-                      style={{ fontSize: 14, fontWeight: 600, color: GOLD, textDecoration: 'none', fontFamily: SERIF, fontStyle: 'italic' }}
-                    >
-                      {s.passage}
-                    </Link>
-                    <div style={{ fontSize: 12, color: SLATE }}>
-                      {s.roles.map(r => r.charAt(0).toUpperCase() + r.slice(1)).join(' + ')} · saved {new Date(s.updated_at).toLocaleDateString()}
+              {savedStudies.map(s => {
+                const tier = tierByPassage[s.passage]
+                const base = `/study/${encodeURIComponent(s.passage)}?roles=${s.roles.join(',')}`
+                return (
+                  <div key={s.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '0.5px solid rgba(255,255,255,0.06)', gap: 12, flexWrap: 'wrap' }}>
+                    <div style={{ minWidth: 0 }}>
+                      <Link
+                        href={base}
+                        style={{ fontSize: 14, fontWeight: 600, color: GOLD, textDecoration: 'none', fontFamily: SERIF, fontStyle: 'italic' }}
+                      >
+                        {s.passage}
+                      </Link>
+                      <div style={{ fontSize: 12, color: SLATE }}>
+                        {tier ? `${TIER_LABEL[tier]} · ` : ''}{s.roles.map(r => r.charAt(0).toUpperCase() + r.slice(1)).join(' + ')} · saved {new Date(s.updated_at).toLocaleDateString()}
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>
+                      {/* Expand a saved study to the next tier — priced as the
+                          DIFFERENCE from what's already owned, never full price */}
+                      {tier === 'quick' && (
+                        <Link href={`${base}&expand=deep`} style={expandBtn('#A78BFA')}>
+                          Expand to Deep Dive — +$5
+                        </Link>
+                      )}
+                      {ACADEMIC_ENABLED && (tier === 'quick' || tier === 'deep') && (
+                        <Link href={`${base}&expand=academic`} style={expandBtn('#54C9A0')}>
+                          Expand to Academic — +${tier === 'deep' ? '10' : '15'}
+                        </Link>
+                      )}
+                      <button
+                        onClick={() => deleteStudy(s.id)}
+                        title="Remove from saved studies"
+                        style={{ background: 'none', border: '1px solid rgba(255,255,255,0.12)', color: SLATE, borderRadius: 6, padding: '4px 10px', fontSize: 11, cursor: 'pointer', fontFamily: SANS, flexShrink: 0 }}
+                      >
+                        Remove
+                      </button>
                     </div>
                   </div>
-                  <button
-                    onClick={() => deleteStudy(s.id)}
-                    title="Remove from saved studies"
-                    style={{ background: 'none', border: '1px solid rgba(255,255,255,0.12)', color: SLATE, borderRadius: 6, padding: '4px 10px', fontSize: 11, cursor: 'pointer', fontFamily: SANS, flexShrink: 0 }}
-                  >
-                    Remove
-                  </button>
-                </div>
-              ))}
+                )
+              })}
             </div>
 
             {/* Recent studies (charged at unlock) */}

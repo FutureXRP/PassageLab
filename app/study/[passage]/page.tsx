@@ -1838,6 +1838,7 @@ export default function StudyPage() {
   // quick    = All $1 Haiku tabs unlocked
   // deep     = All $2 Sonnet tabs unlocked
   type StudyState = 'free' | 'quick' | 'deep' | 'academic'
+  const TIER_RANK: Record<StudyState, number> = { free: 0, quick: 1, deep: 2, academic: 3 }
 
   const [studyState, setStudyState] = useState<StudyState>(() => {
     if (isSample) return 'deep'
@@ -1872,7 +1873,10 @@ export default function StudyPage() {
   const [currentlyGenerating, setCurrentlyGenerating] = useState<string | null>(null)
   const [modal, setModal]               = useState<'quick' | 'deep' | 'academic' | null>(null)
   const [saveState, setSaveState]       = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
-  const [studyUserId, setStudyUserId]   = useState<string | null>(null)
+  // undefined = auth still resolving; null = signed out
+  const [studyUserId, setStudyUserId]   = useState<string | null | undefined>(undefined)
+  // true once the account's paid unlocks for this passage have been checked
+  const [unlocksReady, setUnlocksReady] = useState(false)
   const generationQueue                  = useRef<string[]>([])
   const isProcessingQueue                = useRef(false)
   const hasInit                          = useRef(false)
@@ -1957,10 +1961,14 @@ export default function StudyPage() {
       })
 
       const ids = Object.keys(savedTabs)
-      if (ids.some(id => deepTabs.includes(id))) setStudyState('deep')
-      else if (ids.some(id => quickTabs.includes(id) && id !== 'overview')) {
-        setStudyState(s => (s === 'deep' ? s : 'quick'))
-      }
+      const inferred: StudyState =
+        ids.some(id => academicTabs.includes(id)) ? 'academic'
+        : ids.some(id => deepTabs.includes(id))   ? 'deep'
+        : ids.some(id => quickTabs.includes(id) && id !== 'overview') ? 'quick'
+        : 'free'
+      // Upgrade-only: saved content can raise the visible tier, never lower it.
+      // (The entitlement-restore effect below is the paid-tier source of truth.)
+      setStudyState(s => (TIER_RANK[inferred] > TIER_RANK[s] ? inferred : s))
       setSaveState('saved')
     }
     hydrateFromAccount()
@@ -2006,7 +2014,7 @@ export default function StudyPage() {
 
   // Track the signed-in user so autosave knows whether it can persist.
   useEffect(() => {
-    if (!supabase) return
+    if (!supabase) { setStudyUserId(null); return }
     supabase.auth.getSession().then(({ data: { session } }) => {
       setStudyUserId(session?.user?.id ?? null)
     })
@@ -2015,6 +2023,67 @@ export default function StudyPage() {
     })
     return () => { sub?.subscription?.unsubscribe?.() }
   }, [])
+
+  // Entitlement restore — what this account has PAID FOR is the source of
+  // truth (usage_events, written by /api/checkout; readable via own-row RLS).
+  // Whenever a study is reopened — any device, any day, cleared cache — the
+  // owned tier comes back, so the next tier is always offered at the upgrade
+  // price (the difference), never full price again. Upgrade-only, and mirrors
+  // the server's getUnlockStatus filter exactly.
+  useEffect(() => {
+    if (isSample) return
+    if (studyUserId === undefined) return                       // auth still resolving
+    if (!studyUserId || !supabase) { setUnlocksReady(true); return }  // signed out
+    let cancelled = false
+    ;(async () => {
+      try {
+        const { data } = await supabase
+          .from('usage_events')
+          .select('study_type')
+          .eq('user_id', studyUserId)
+          .eq('passage', passage)
+          // Paid charges, the free first-study claim, and coupon unlocks all count
+          .or('amount.gt.0,promo.is.true,coupon_code.not.is.null')
+        if (cancelled) return
+        const types = new Set((data || []).map(e => e.study_type))
+        const owned: StudyState =
+          types.has('academic') ? (ACADEMIC_ENABLED ? 'academic' : 'deep')
+          : types.has('deep')   ? 'deep'
+          : types.has('quick')  ? 'quick'
+          : 'free'
+        if (owned !== 'free') {
+          setStudyState(s => (TIER_RANK[owned] > TIER_RANK[s] ? owned : s))
+        }
+      } catch { /* leave state as-is — the server still prices upgrades correctly */ }
+      if (!cancelled) setUnlocksReady(true)
+    })()
+    return () => { cancelled = true }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [studyUserId, isSample, passage])
+
+  // /study/...?expand=deep|academic — the account page's "Expand study" links.
+  // Opens the payment modal for the requested tier only after entitlements are
+  // restored, so it quotes the upgrade price (+$5 / +$10 / +$15), never full
+  // price. One-shot; no-op if the tier is already owned.
+  const expandHandled = useRef(false)
+  useEffect(() => {
+    if (isSample || !unlocksReady || expandHandled.current) return
+    const target = searchParams.get('expand')
+    if (target !== 'deep' && target !== 'academic') return
+    expandHandled.current = true
+    if (target === 'academic' && academicTabs.length > 0 && TIER_RANK[studyState] < TIER_RANK.academic) {
+      setModal('academic')
+    } else if (target === 'deep' && TIER_RANK[studyState] < TIER_RANK.deep) {
+      setModal('deep')
+    }
+    // Strip the param so refresh/back doesn't reopen the modal
+    try {
+      const url = new URL(window.location.href)
+      url.searchParams.delete('expand')
+      window.history.replaceState({}, '', url.toString())
+    } catch {}
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [unlocksReady, studyState, isSample])
 
   // Autosave: whenever completed tabs change, debounce and upsert to the
   // account. Fires per tab during generation so a study is never lost mid-run.
