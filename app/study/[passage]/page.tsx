@@ -2378,15 +2378,8 @@ export default function StudyPage() {
             {quickTabs.filter(t => t !== 'overview').map(tabId => (
               <span key={tabId} style={{ fontSize: 11, color: 'rgba(201,151,58,0.5)', background: 'rgba(201,151,58,0.04)', border: '0.5px solid rgba(201,151,58,0.12)', borderRadius: 4, padding: '2px 8px' }}>{TAB_LABELS[tabId]}</span>
             ))}
-            {deepTabs.length > 0 && (
-              <>
-                <span style={{ fontSize: 11, color: PURPLE, marginLeft: 8 }}>$10 unlocks everything · first one free:</span>
-                {deepTabs.slice(0, 4).map(tabId => (
-                  <span key={tabId} style={{ fontSize: 11, color: 'rgba(167,139,250,0.5)', background: 'rgba(167,139,250,0.04)', border: '0.5px solid rgba(167,139,250,0.12)', borderRadius: 4, padding: '2px 8px' }}>{TAB_LABELS[tabId]}</span>
-                ))}
-                {deepTabs.length > 4 && <span style={{ fontSize: 11, color: SLATE }}>+{deepTabs.length - 4} more</span>}
-              </>
-            )}
+            {/* Deep ($10) tabs are shown in their own labeled "Scholarly Depth" row
+                below — listing them here too was redundant, so it was removed. */}
           </div>
         )}
 
