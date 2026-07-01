@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseModelJson, trimToLastSentence, trimTruncatedAcademic } from '../lib/json-repair'
+import { parseModelJson, trimToLastSentence, trimTruncatedAcademic, isIncompleteAcademic } from '../lib/json-repair'
 
 describe('parseModelJson', () => {
   it('parses clean JSON', () => {
@@ -124,5 +124,65 @@ describe('trimTruncatedAcademic', () => {
     const data = { academic: { blocks: [{ heading: 'Only', paragraphs: ['cut off mid'] }] } }
     const out = trimTruncatedAcademic(data) as any
     expect(out.academic.blocks).toHaveLength(1)
+  })
+})
+
+describe('isIncompleteAcademic', () => {
+  // The reported case: the "v. 15 — Most Difficult Verse" block rendered a
+  // single unterminated Greek clause. Detection lets the client refuse to
+  // restore this stale content and regenerate it complete instead.
+  it('flags a final block that is a mid-sentence fragment', () => {
+    expect(isIncompleteAcademic({
+      academic: { blocks: [
+        { heading: 'Grounds', paragraphs: ['Adam was first formed, then Eve.'] },
+        { heading: 'The Most Difficult Verse', paragraphs: ['σωθήσεται δὲ διὰ τῆς τεκνογονίας (sōthēsetai de'] },
+      ] },
+    })).toBe(true)
+  })
+
+  it('flags a heading-only final block', () => {
+    expect(isIncompleteAcademic({
+      academic: { blocks: [
+        { heading: 'A', paragraphs: ['Fine.'] },
+        { heading: 'Empty shell', paragraphs: [] },
+      ] },
+    })).toBe(true)
+  })
+
+  it('flags missing/empty blocks', () => {
+    expect(isIncompleteAcademic({ academic: { blocks: [] } })).toBe(true)
+    expect(isIncompleteAcademic({})).toBe(true)
+    expect(isIncompleteAcademic(null)).toBe(true)
+  })
+
+  it('accepts a complete document', () => {
+    expect(isIncompleteAcademic({
+      academic: { blocks: [
+        { heading: 'A', paragraphs: ['First point stands.'] },
+        { heading: 'B', paragraphs: ['Second point concludes properly.'] },
+      ] },
+    })).toBe(false)
+  })
+
+  it('accepts a final block whose prose introduces an intact table', () => {
+    expect(isIncompleteAcademic({
+      academic: { blocks: [
+        { heading: 'Witnesses', paragraphs: ['The manuscripts divide as follows:'],
+          table: { headers: ['Reading', 'Support'], rows: [['α', 'P46']] } },
+      ] },
+    })).toBe(false)
+  })
+
+  it('checks the last bullet when bullets close the block', () => {
+    expect(isIncompleteAcademic({
+      academic: { blocks: [
+        { heading: 'Agenda', paragraphs: ['Questions remain:'], bullets: ['How does v. 15 relate to 4:16?'] },
+      ] },
+    })).toBe(false)
+    expect(isIncompleteAcademic({
+      academic: { blocks: [
+        { heading: 'Agenda', paragraphs: ['Questions remain:'], bullets: ['A cut off bullet without'] },
+      ] },
+    })).toBe(true)
   })
 })

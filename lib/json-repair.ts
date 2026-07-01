@@ -119,6 +119,27 @@ export function trimTruncatedAcademic(data: Record<string, unknown>): Record<str
   return data
 }
 
+// Detect an academic document whose tail was cut off (or whose final block is
+// an empty shell). Used client-side to refuse restoring stale truncated
+// content — the tab regenerates fresh instead of re-showing a fragment.
+export function isIncompleteAcademic(data: unknown): boolean {
+  const academic = (data as { academic?: { blocks?: unknown[] } } | null)?.academic
+  const blocks = academic?.blocks
+  if (!Array.isArray(blocks) || blocks.length === 0) return true
+  const last = blocks[blocks.length - 1] as {
+    paragraphs?: unknown[]; bullets?: unknown[]; table?: { rows?: unknown[] }
+  } | null
+  if (!last || typeof last !== 'object') return true
+  // A populated table is generated after the prose — if it survived intact,
+  // the block wasn't cut mid-prose (a trailing ':' before a table is normal).
+  if (Array.isArray(last.table?.rows) && last.table.rows.length > 0) return false
+  const bullets = (Array.isArray(last.bullets) ? last.bullets : []).map(x => String(x ?? '').trim()).filter(Boolean)
+  if (bullets.length) return !endsCleanSentence(bullets[bullets.length - 1])
+  const paras = (Array.isArray(last.paragraphs) ? last.paragraphs : []).map(x => String(x ?? '').trim()).filter(Boolean)
+  if (paras.length) return !endsCleanSentence(paras[paras.length - 1])
+  return true  // heading-only block with no content
+}
+
 function closeOpenStructures(s: string): Record<string, unknown> | null {
   const stack: string[] = []
   let inString = false

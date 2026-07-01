@@ -152,9 +152,13 @@ export async function POST(req: NextRequest) {
     }
 
     // ── Supabase cache check ──────────────────────────────────────────────
-    const cached = await getCachedTab(passage, roles, tabId)
+    // Academic entries are salted with a content version: entries cached
+    // before the continuation fix could be truncated mid-sentence — salting
+    // makes them miss so the tab regenerates complete.
+    const cacheTabId = isAcademicTab(tabId) ? `${tabId}.v2` : tabId
+    const cached = await getCachedTab(passage, roles, cacheTabId)
     if (cached) {
-      incrementCacheHit(passage, roles, tabId).catch(() => {})
+      incrementCacheHit(passage, roles, cacheTabId).catch(() => {})
       if (userId) {
         // amount 0 — the billable charge is the unlock event from
         // /api/checkout; per-tab events are analytics only
@@ -237,8 +241,6 @@ export async function POST(req: NextRequest) {
     const modelKey  = getTabModel(tabId)
     const model     = modelKey === 'opus' ? OPUS : modelKey === 'sonnet' ? SONNET : HAIKU
     const maxTokens = getTabTokens(tabId)
-    // Opus generations are long; give the upstream call a bigger budget.
-    const callTimeout = modelKey === 'opus' ? 280_000 : 100_000
 
     // ── Bible text for caching ────────────────────────────────────────────
     // The KJV text is the primary passage reference injected into prompts
@@ -251,61 +253,97 @@ export async function POST(req: NextRequest) {
     // The system prompt and Bible text are identical across all tabs in a
     // study session — marking them ephemeral caches them for ~5 minutes,
     // saving 90% on those input tokens for every subsequent tab call.
-    // Model JSON occasionally arrives malformed (a stray quote or raw newline
-    // inside a string) or truncated — both non-deterministic. Rather than fail
-    // the tab, re-roll once with a larger token budget. Prompt caching keeps
-    // the retry's input nearly free, so most "Failed to parse" blips vanish
-    // without the user ever seeing the error.
+    //
+    // Completeness guarantee: a response that hits max_tokens is NOT shipped
+    // as-is. The continuation loop resumes the model from exactly where it
+    // stopped (assistant prefill), so a long section FINISHES instead of
+    // ending mid-sentence — the end of a section is often its most important
+    // part. Malformed JSON (non-truncation) still gets one re-roll. All calls
+    // are time-budgeted to stay inside the function's 300s window; if the
+    // budget runs out, the error path lets the client retry a fresh function.
     let response: Anthropic.Message | null = null
     let parsed:   Record<string, unknown> | null = null
     let truncated = false
+    // Usage accumulated across every call (attempts + continuations)
+    let inputTokens = 0, outputTokens = 0, cacheReadTokens = 0, cacheWriteTokens = 0
+
+    const started = Date.now()
+    const TIME_BUDGET_MS = 285_000        // maxDuration is 300s; keep headroom
+    const remainingMs = () => TIME_BUDGET_MS - (Date.now() - started)
+
+    const systemBlocks: Anthropic.TextBlockParam[] = [
+      { type: 'text', text: SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } },
+    ]
+    const userContent: Anthropic.TextBlockParam[] = [
+      // Bible text block — cached across all tabs for this passage
+      { type: 'text', text: bibleBlock, cache_control: { type: 'ephemeral' } },
+      // Tab-specific prompt — NOT cached (unique per tab)
+      { type: 'text', text: tabPrompt },
+    ]
+    const addUsage = (r: Anthropic.Message) => {
+      const u = r.usage as any
+      inputTokens      += u.input_tokens || 0
+      outputTokens     += u.output_tokens || 0
+      cacheReadTokens  += u.cache_read_input_tokens || 0
+      cacheWriteTokens += u.cache_creation_input_tokens || 0
+    }
+    const textOf = (r: Anthropic.Message) =>
+      r.content.filter(b => b.type === 'text').map(b => (b as Anthropic.TextBlock).text).join('')
 
     for (let attempt = 0; attempt < 2 && parsed === null; attempt++) {
-      // Retry (on a PARSE FAILURE only) re-rolls with a little more room, but
-      // capped at 9000 so even an Opus double-attempt stays inside the 300s
-      // function budget. Genuine truncation is handled after the loop by
-      // trimming — we never re-roll a full long generation just to un-cut it.
+      // A re-roll needs real time left — otherwise return the error and let
+      // the client's auto-retry start a FRESH function with a full budget.
+      if (attempt > 0 && remainingMs() < 60_000) break
+
       const tokens = attempt === 0
         ? maxTokens
         : Math.max(4096, Math.min(Math.ceil(maxTokens * 1.4), 9000))
+      const callTimeout = Math.max(
+        30_000,
+        Math.min(modelKey === 'opus' ? 280_000 : 100_000, remainingMs() - 5_000)
+      )
+
       response = await anthropic.messages.create({
         model,
         max_tokens: tokens,
-        system: [
-          {
-            type: 'text',
-            text: SYSTEM_PROMPT,
-            cache_control: { type: 'ephemeral' },
-          }
-        ],
-        messages: [
-          {
-            role: 'user',
-            content: [
-              {
-                // Bible text block — cached across all tabs for this passage
-                type: 'text',
-                text: bibleBlock,
-                cache_control: { type: 'ephemeral' },
-              },
-              {
-                // Tab-specific prompt — NOT cached (unique per tab)
-                type: 'text',
-                text: tabPrompt,
-              }
-            ]
-          }
-        ],
+        system: systemBlocks,
+        messages: [{ role: 'user', content: userContent }],
       }, { timeout: callTimeout })
+      addUsage(response)
+      let rawText = textOf(response)
+
+      // ── Continuation: never ship a cut-off section ──────────────────────
+      // stop_reason 'max_tokens' means the model was cut mid-stream. Resume it
+      // with its own partial output as an assistant prefill — it picks up at
+      // the exact character it stopped on. Up to 2 rounds, time-permitting.
+      let rounds = 0
+      while (response.stop_reason === 'max_tokens' && rounds < 2 && remainingMs() > 45_000) {
+        rounds++
+        console.warn(`Tab ${tabId} hit max_tokens — continuation round ${rounds}`)
+        const base = rawText.replace(/\s+$/, '')  // API rejects trailing whitespace in a prefill
+        try {
+          response = await anthropic.messages.create({
+            model,
+            max_tokens: modelKey === 'opus' ? 4000 : 2500,
+            system: systemBlocks,
+            messages: [
+              { role: 'user', content: userContent },
+              { role: 'assistant', content: base },   // prefill → continues in place
+            ],
+          }, { timeout: Math.max(30_000, Math.min(150_000, remainingMs() - 5_000)) })
+          addUsage(response)
+          rawText = base + textOf(response)
+        } catch (contErr: any) {
+          // A failed continuation must not discard the minutes of work already
+          // done — keep the partial (truncated stays true → trimmed, uncached).
+          console.error(`Continuation failed on tab ${tabId}:`, contErr?.message || contErr)
+          break
+        }
+      }
 
       truncated = response.stop_reason === 'max_tokens'
 
-      const rawText = response.content
-        .filter(b => b.type === 'text')
-        .map(b => (b as Anthropic.TextBlock).text)
-        .join('')
       const cleaned = rawText.replace(/```json/g, '').replace(/```/g, '').trim()
-
       try {
         parsed = parseModelJson(cleaned)
       } catch {
@@ -339,12 +377,8 @@ export async function POST(req: NextRequest) {
     }
 
     // ── Usage tracking ────────────────────────────────────────────────────
-    const usage           = response.usage as any
-    const inputTokens     = usage.input_tokens     || 0
-    const outputTokens    = usage.output_tokens    || 0
-    const cacheReadTokens = usage.cache_read_input_tokens  || 0
-    const cacheWriteTokens= usage.cache_creation_input_tokens || 0
-    const apiCost         = estimateCost(modelKey, inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens)
+    // Token counts were accumulated across every call (incl. continuations)
+    const apiCost = estimateCost(modelKey, inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens)
 
     if (userId) {
       // amount 0 — billing happens at unlock time via /api/checkout
@@ -356,7 +390,12 @@ export async function POST(req: NextRequest) {
     }
 
     // ── Write to Supabase cache ───────────────────────────────────────────
-    setCachedTab(passage, roles, tabId, parsed).catch(() => {})
+    // Only COMPLETE content is cached. A still-truncated response (continuation
+    // budget exhausted — rare) is served trimmed for this request but never
+    // frozen into the cache, so the next attempt regenerates it in full.
+    if (!truncated) {
+      setCachedTab(passage, roles, cacheTabId, parsed).catch(() => {})
+    }
 
     // ── Accumulate the book catalog ───────────────────────────────────────
     // Every freshly generated Books tab feeds the growing, dedup'd catalog

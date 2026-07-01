@@ -6,6 +6,7 @@ import { useParams, useSearchParams } from 'next/navigation'
 import { getTabsForRoles, getTabModel, Role, ACADEMIC_TABS, ACADEMIC_LABELS } from '@/lib/prompts'
 import { ACADEMIC_ENABLED } from '@/lib/flags'
 import { SAMPLE_BIBLE_TEXT, SAMPLE_QUICK_TABS, SAMPLE_DEEP_TABS, SAMPLE_TABS } from '@/lib/sample-study'
+import { isIncompleteAcademic } from '@/lib/json-repair'
 import { LogoMark } from '@/components/logo-mark'
 import { createClient as createBrowserSupabase } from '@/lib/supabase/client'
 import { loadStripe } from '@stripe/stripe-js'
@@ -83,6 +84,14 @@ interface TabState {
 }
 
 // Friendly messages for HTTP error statuses returned by /api/tab
+// Transient statuses that are recovered automatically (silent requeue with
+// backoff) before an error is ever shown. 404/408 cover brief deployment /
+// gateway gaps; 429 covers Anthropic + platform rate limits; 5xx covers
+// timeouts and upstream hiccups. 401 is handled separately (one retry for an
+// auth-cookie blip, then the sign-in flow).
+const AUTO_RETRYABLE = new Set([404, 408, 429, 500, 502, 503, 504, 529])
+const MAX_AUTO_RETRIES = 3
+
 function errorMessageForStatus(status: number, serverMessage?: string): string {
   switch (status) {
     case 429:
@@ -1857,9 +1866,14 @@ export default function StudyPage() {
       const saved = localStorage.getItem(key)
       const parsed: Record<string, TabState> = saved ? JSON.parse(saved) : {}
       // Stale in-flight/error states from a previous visit become idle so
-      // the tab shows a Generate button instead of a stuck spinner/error
+      // the tab shows a Generate button instead of a stuck spinner/error.
+      // Academic content saved truncated (cut off mid-sentence, before the
+      // continuation fix) is also reset — it regenerates complete instead
+      // of re-showing the fragment.
       for (const k of Object.keys(parsed)) {
         if (parsed[k]?.status !== 'done') {
+          parsed[k] = { status: 'idle', data: null, cached: false }
+        } else if ((ACADEMIC_TABS as readonly string[]).includes(k) && isIncompleteAcademic(parsed[k].data)) {
           parsed[k] = { status: 'idle', data: null, cached: false }
         }
       }
@@ -1877,9 +1891,13 @@ export default function StudyPage() {
   const [studyUserId, setStudyUserId]   = useState<string | null | undefined>(undefined)
   // true once the account's paid unlocks for this passage have been checked
   const [unlocksReady, setUnlocksReady] = useState(false)
+  // true once the cross-device saved-study restore has finished (or was skipped)
+  const [hydrated, setHydrated]         = useState(false)
   const generationQueue                  = useRef<string[]>([])
   const isProcessingQueue                = useRef(false)
   const hasInit                          = useRef(false)
+  // Per-tab automatic retry counter (reset on success and on manual re-queue)
+  const retryCounts                      = useRef<Record<string, number>>({})
 
   const rolesKey = [...roles].sort().join('+')
 
@@ -1951,6 +1969,9 @@ export default function StudyPage() {
       setTabStates(prev => {
         const merged: Record<string, TabState> = {}
         for (const [id, content] of Object.entries(savedTabs)) {
+          // Skip academic content that was saved truncated (pre-continuation-fix)
+          // — leaving it idle lets the resume effect regenerate it complete.
+          if ((ACADEMIC_TABS as readonly string[]).includes(id) && isIncompleteAcademic(content)) continue
           merged[id] = { status: 'done', data: content, cached: true }
         }
         // Anything this browser already finished or started wins
@@ -1971,7 +1992,7 @@ export default function StudyPage() {
       setStudyState(s => (TIER_RANK[inferred] > TIER_RANK[s] ? inferred : s))
       setSaveState('saved')
     }
-    hydrateFromAccount()
+    hydrateFromAccount().finally(() => setHydrated(true))
   }, [])
 
   // ── Save study to account ─────────────────────────────────────────────────
@@ -2085,6 +2106,28 @@ export default function StudyPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [unlocksReady, studyState, isSample])
 
+  // Resume/heal — a paid study always finishes itself. Once entitlements are
+  // verified AND the saved-study restore has run, any tab included in the
+  // owned tier that has no completed content (purchase interrupted mid-run,
+  // a tab that errored out, or stale truncated content dropped above) is
+  // queued automatically. Most re-serve instantly from the server cache; only
+  // genuinely missing tabs regenerate. Runs once per page load.
+  const resumedOnce = useRef(false)
+  useEffect(() => {
+    if (isSample || !unlocksReady || !hydrated || resumedOnce.current) return
+    if (studyState === 'free') return
+    resumedOnce.current = true
+    const entitledTabs =
+      studyState === 'academic' ? [...quickTabs, ...deepTabs, ...academicTabs]
+      : studyState === 'deep'   ? [...quickTabs, ...deepTabs]
+      : quickTabs
+    for (const tabId of entitledTabs) {
+      const st = tabStates[tabId]?.status
+      if (st !== 'done' && st !== 'generating') queueTab(tabId)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [unlocksReady, hydrated, studyState, isSample])
+
   // Autosave: whenever completed tabs change, debounce and upsert to the
   // account. Fires per tab during generation so a study is never lost mid-run.
   useEffect(() => {
@@ -2108,6 +2151,7 @@ export default function StudyPage() {
     const state = tabStates[tabId]
     if (state?.status === 'done' || state?.status === 'generating') return
     if (generationQueue.current.includes(tabId)) return
+    retryCounts.current[tabId] = 0   // fresh auto-retry budget for an explicit (re)queue
     generationQueue.current.push(tabId)
     setTabStates(prev => ({
       ...prev,
@@ -2204,11 +2248,22 @@ export default function StudyPage() {
       [tabId]: { status: 'generating', data: null, cached: false }
     }))
 
-    // Abort if the request outlives the API route's 120s budget —
-    // surfaces as a 504-style timeout message instead of hanging forever
+    // Abort if the request outlives the API route's budget — surfaces as a
+    // 504-style timeout instead of hanging forever. Slightly ABOVE the server's
+    // window (300s / 100s-280s calls) so the server is never cut off mid-work.
     const controller = new AbortController()
-    // Academic (Opus) tabs run long — give them a much larger client timeout.
-    const timeout = setTimeout(() => controller.abort(), academicTabs.includes(tabId) ? 290_000 : 150_000)
+    const timeout = setTimeout(() => controller.abort(), academicTabs.includes(tabId) ? 310_000 : 160_000)
+
+    // Silent recovery: put the tab back in the queue after a short backoff.
+    // The worker lane waits out the delay, so a rate limit gets room to clear.
+    async function requeueAfter(delayMs: number) {
+      setTabStates(prev => ({
+        ...prev,
+        [tabId]: { status: 'idle', data: null, cached: false }
+      }))
+      await new Promise(r => setTimeout(r, delayMs))
+      if (!generationQueue.current.includes(tabId)) generationQueue.current.push(tabId)
+    }
 
     try {
       const res = await fetch('/api/tab', {
@@ -2222,6 +2277,22 @@ export default function StudyPage() {
       const json = await res.json().catch(() => ({}))
 
       if (!res.ok) {
+        // ── Automatic recovery ─────────────────────────────────────────────
+        // Rate limits and transient gateway/server errors never kill a tab:
+        // it silently requeues with backoff, up to MAX_AUTO_RETRIES times.
+        // A 401 gets ONE silent retry (auth-cookie blip) before the sign-in
+        // flow takes over.
+        const n = (retryCounts.current[tabId] || 0) + 1
+        const cap = res.status === 401 ? 1 : MAX_AUTO_RETRIES
+        if ((AUTO_RETRYABLE.has(res.status) || res.status === 401) && n <= cap) {
+          retryCounts.current[tabId] = n
+          const delay = res.status === 429 ? Math.min(30_000, 8_000 * n)
+                      : res.status === 401 ? 1_500
+                      : 3_000 * n
+          await requeueAfter(delay)
+          return
+        }
+
         // Server says this user isn't entitled to this tab — re-lock the UI
         // and reopen the payment modal (checkout is idempotent, so a user
         // who already paid will be unlocked again without a second charge)
@@ -2247,12 +2318,21 @@ export default function StudyPage() {
         setBibleText(json.bibleText)
       }
 
+      retryCounts.current[tabId] = 0
       setTabStates(prev => ({
         ...prev,
         [tabId]: { status: 'done', data: json.data, cached: json.cached }
       }))
     } catch (err: any) {
-      const message = err?.name === 'AbortError'
+      const aborted = err?.name === 'AbortError'
+      // Timeouts and network drops also recover automatically
+      const n = (retryCounts.current[tabId] || 0) + 1
+      if (n <= MAX_AUTO_RETRIES) {
+        retryCounts.current[tabId] = n
+        await requeueAfter(aborted ? 2_000 : 4_000 * n)
+        return
+      }
+      const message = aborted
         ? errorMessageForStatus(504)
         : 'Network error — check your connection and try again.'
       setTabStates(prev => ({
