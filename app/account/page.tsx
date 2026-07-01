@@ -135,6 +135,11 @@ export default function AccountPage() {
 
   async function deleteStudy(id: string) {
     if (!supabase) return
+    // Deletion is intentional only — a study never disappears otherwise.
+    if (typeof window !== 'undefined' &&
+        !window.confirm('Delete this saved study? This permanently removes it from your account and cannot be undone.')) {
+      return
+    }
     await supabase.from('saved_studies').delete().eq('id', id)
     setSavedStudies(prev => prev.filter(s => s.id !== id))
   }
@@ -291,7 +296,7 @@ export default function AccountPage() {
               <div style={secTitle}>Saved Studies</div>
               {savedStudies.length === 0 && (
                 <div style={{ fontSize: 13, color: SLATE }}>
-                  No saved studies yet — open a study and click &quot;Save Study&quot; to keep it on your account across devices.
+                  No saved studies yet — every study you generate saves here automatically, on all your devices. Nothing is removed unless you delete it.
                 </div>
               )}
               {savedStudies.map(s => (

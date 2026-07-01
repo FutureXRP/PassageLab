@@ -1864,6 +1864,7 @@ export default function StudyPage() {
   const [currentlyGenerating, setCurrentlyGenerating] = useState<string | null>(null)
   const [modal, setModal]               = useState<'quick' | 'deep' | 'academic' | null>(null)
   const [saveState, setSaveState]       = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
+  const [studyUserId, setStudyUserId]   = useState<string | null>(null)
   const generationQueue                  = useRef<string[]>([])
   const isProcessingQueue                = useRef(false)
   const hasInit                          = useRef(false)
@@ -1958,33 +1959,68 @@ export default function StudyPage() {
   }, [])
 
   // ── Save study to account ─────────────────────────────────────────────────
+  // Every study autosaves to the signed-in user's account as tabs generate
+  // (debounced effect below), so nothing is ever lost. It's also kept in
+  // localStorage per-browser, and can be deleted by the user from /account.
 
-  async function saveStudy() {
-    if (!supabase) return
-    const { data: { session } } = await supabase.auth.getSession()
-    if (!session?.user) {
-      // Sign in on the account page, then come back and save
-      window.location.href = '/account'
-      return
-    }
-    setSaveState('saving')
-
+  // Core upsert of all completed tabs. Returns true on success.
+  async function persistStudy(uid: string): Promise<boolean> {
+    if (!supabase) return false
     const tabs: Record<string, unknown> = {}
     for (const [id, s] of Object.entries(tabStates)) {
       if (s.status === 'done' && s.data) tabs[id] = s.data
     }
-
+    if (Object.keys(tabs).length === 0) return false
     const { error } = await supabase.from('saved_studies').upsert({
-      user_id:    session.user.id,
+      user_id:    uid,
       passage,
       roles,
       roles_key:  rolesKey,
       tabs,
       updated_at: new Date().toISOString(),
     }, { onConflict: 'user_id,passage,roles_key' })
-
-    setSaveState(error ? 'error' : 'saved')
+    return !error
   }
+
+  // Manual "Save Study" button — for signed-out users it routes to sign-in;
+  // signed-in users are already autosaving, so this just confirms.
+  async function saveStudy() {
+    if (!supabase) return
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session?.user) {
+      window.location.href = '/account'
+      return
+    }
+    setSaveState('saving')
+    const ok = await persistStudy(session.user.id)
+    setSaveState(ok ? 'saved' : 'error')
+  }
+
+  // Track the signed-in user so autosave knows whether it can persist.
+  useEffect(() => {
+    if (!supabase) return
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setStudyUserId(session?.user?.id ?? null)
+    })
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => {
+      setStudyUserId(session?.user?.id ?? null)
+    })
+    return () => { sub?.subscription?.unsubscribe?.() }
+  }, [])
+
+  // Autosave: whenever completed tabs change, debounce and upsert to the
+  // account. Fires per tab during generation so a study is never lost mid-run.
+  useEffect(() => {
+    if (isSample || !supabase || !studyUserId) return
+    const anyDone = Object.values(tabStates).some(s => s.status === 'done' && s.data)
+    if (!anyDone) return
+    const t = setTimeout(async () => {
+      const ok = await persistStudy(studyUserId)
+      setSaveState(ok ? 'saved' : 'error')
+    }, 2500)
+    return () => clearTimeout(t)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tabStates, studyUserId, isSample])
 
   // ── Queue system ─────────────────────────────────────────────────────────
   // Sequential — one tab at a time, error-resilient
