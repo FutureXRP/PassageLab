@@ -2373,8 +2373,9 @@ export default function StudyPage() {
           </div>
         )}
 
-        {/* $2 Scholarly Depth row */}
-        {studyState === 'deep' && deepTabs.length > 0 && (
+        {/* Scholarly Depth (Deep) row — shown when Deep OR Academic is unlocked
+            (Academic includes the Deep tabs) */}
+        {(studyState === 'deep' || studyState === 'academic') && deepTabs.length > 0 && (
           <div style={{ background: 'rgba(167,139,250,0.03)' }}>
             <div style={{ fontSize: 10, color: PURPLE, textTransform: 'uppercase' as const, letterSpacing: '1px', fontWeight: 600, padding: '6px 20px 0' }}>
               $10 — Scholarly Depth ✓
