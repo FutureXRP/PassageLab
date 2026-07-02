@@ -92,20 +92,28 @@ interface TabState {
 const AUTO_RETRYABLE = new Set([404, 408, 429, 500, 502, 503, 504, 529])
 const MAX_AUTO_RETRIES = 3
 
+// Shown only after every automatic retry has been exhausted — reassure the
+// user that a hiccup never costs them anything before they walk away.
+const ERROR_REASSURE =
+  "Retrying is always free — your purchase covers this study, no matter how many attempts it takes. Still stuck? Email info@passagelab.app and we'll make it right."
+
 function errorMessageForStatus(status: number, serverMessage?: string): string {
-  switch (status) {
-    case 429:
-      return serverMessage || 'Servers are busy right now. Please wait a moment and try again.'
-    case 500:
-      return serverMessage || 'Something went wrong on our end (error 500). Please try again.'
-    case 502:
-    case 503:
-      return serverMessage || 'The service is temporarily unavailable (error ' + status + '). Please try again shortly.'
-    case 504:
-      return 'The server took too long to respond (error 504). This can happen with very long passages — try again, or study a shorter passage.'
-    default:
-      return serverMessage || `Generation failed (error ${status}). Please try again.`
-  }
+  const base = (() => {
+    switch (status) {
+      case 429:
+        return serverMessage || 'Servers are busy right now. Please wait a moment and try again.'
+      case 500:
+        return serverMessage || 'Something went wrong on our end (error 500). Please try again.'
+      case 502:
+      case 503:
+        return serverMessage || 'The service is temporarily unavailable (error ' + status + '). Please try again shortly.'
+      case 504:
+        return 'The server took too long to respond (error 504). This can happen with very long passages — try again, or study a shorter passage.'
+      default:
+        return serverMessage || `Generation failed (error ${status}). Please try again.`
+    }
+  })()
+  return `${base} ${ERROR_REASSURE}`
 }
 
 // ─── Styles ───────────────────────────────────────────────────────────────
@@ -2334,7 +2342,7 @@ export default function StudyPage() {
       }
       const message = aborted
         ? errorMessageForStatus(504)
-        : 'Network error — check your connection and try again.'
+        : `Network error — check your connection and try again. ${ERROR_REASSURE}`
       setTabStates(prev => ({
         ...prev,
         [tabId]: { status: 'error', data: null, cached: false, error: message }
